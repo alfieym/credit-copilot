@@ -1,0 +1,36 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: credit-copilot-pg
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-credit_copilot}
+      POSTGRES_USER: ${POSTGRES_USER:-credit}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-credit}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-credit}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # 阶段4启用：docker compose --profile observability up -d
+  langfuse:
+    image: ghcr.io/langfuse/langfuse:2
+    container_name: credit-copilot-langfuse
+    profiles: ["observability"]
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-credit}:${POSTGRES_PASSWORD:-credit}@postgres:5432/langfuse
+      NEXTAUTH_SECRET: dev-secret-change-me
+      SALT: dev-salt
+      TELEMETRY_ENABLED: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pgdata:

@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+dist/
+build/
+
+# 环境与密钥
+.env
+
+# 工具缓存
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# 生成的数据（可复现，用 `make data` 重新生成）
+data/seed/*.csv
+
+# 系统
+.DS_Store
