@@ -58,6 +58,54 @@
 
 > **为什么是「确定性管线 + Agents SDK」而非「LangGraph DAG」？** OpenAI Agents SDK 没有 DAG 原语，它是 agent-loop 框架。任务拆解用普通 Python 编排函数表达（这本身是更优、更可控的做法），SDK 贡献 `function_tool` / `input_guardrail` / `output_guardrail` / `Runner` / tracing。详见[阶段0技术选型](#技术栈)。
 
+## 工程结构图
+
+整条链路分五层，数据沿 `query → SSE → 报告` 走一圈。读代码时对照此图定位「这一层在做什么、依赖哪一层」：
+
+```mermaid
+flowchart TB
+    subgraph FE["① 前端 · Next.js 16 + React 19（apps/web）"]
+        A1["page.tsx 查询入口"] --> A2["useReportStream SSE 解析"] --> A3["ReportView 章节/合规/数据缺口渲染"]
+    end
+
+    subgraph API["② API 层 · FastAPI（api/app.py）"]
+        B1["POST /report（同步 JSON）"]
+        B2["POST /report/stream（SSE 流式）"]
+    end
+
+    subgraph AGENT["③ Agent 编排层 · OpenAI Agents SDK（agents/）"]
+        C1["orchestrator 确定性管线 + 有界回炉"]
+        C2["pipeline 任务拆解（resolve→collect→compliance→compose）"]
+        C3["memo_agent 成文 Agent（@function_tool）"]
+        C4["guardrails 输入/输出校验"]
+    end
+
+    subgraph TOOL["④ 工具层 · 框架无关（tools/ + llm/）"]
+        D1["datawarehouse canned SQL + 只读 guardrail"]
+        D2["policy_search BM25 分块检索"]
+        D3["llm/client 多提供商（OpenAI/DeepSeek/Bedrock）"]
+    end
+
+    subgraph DATA["⑤ 数据层"]
+        E1[("PostgreSQL + pgvector（星型模型）")]
+        E2["政策语料 docs/policy/*.md"]
+    end
+
+    A1 -- "query" --> B2
+    B2 -- "run_report_stream()" --> C1
+    C1 --> C2
+    C1 --> C3
+    C1 --> C4
+    C2 --> D1 --> E1
+    C2 --> D2 --> E2
+    C3 --> D3 --> E3["外部 LLM API"]
+    B2 -- "SSE: start/node/done/error" --> A2
+```
+
+- **③ 编排层是项目的心跳**：四原则全部落在这里，是转型面试的核心考点。
+- **④ 工具层刻意「框架无关」**：不 import Agents SDK，可原样复用到后续 T1 问答 / T3 流程自动化。
+- 目录树见上方「项目工程结构（Monorepo）」，各模块职责见「后端模块结构」「前端模块结构」。
+
 ## 领域模型
 
 | 表 | 含义 |
@@ -175,6 +223,26 @@ apps/web/src/
 - **OpenAI Agents SDK vs LangGraph**：LangGraph 是「最 production-ready」的图编排框架，但 Agents SDK 更简洁、guardrails/tracing 内置、token 效率最高，且与 OpenAI-first 生态一致。代价是它没有确定性 DAG 原语——本项目把确定性流程保留在 Python 编排函数里（见[架构](#架构)），SDK 只负责 LLM 步与校验。同时它是 OpenAI-first，用 Claude 需经 Bedrock（本项目已内置该路径）。
 - **Next.js + FastAPI**：2026 年 AI 产品的主流前后端组合，直连 SSE、零 Node BFF 复杂度。
 - **Monorepo**：uv + npm + Turborepo 是现代欧美团队默认；后端绝对导入 `from credit_copilot…` 不受层级影响，`apps/backend/docs/policy` 的语料相对路径保持不变。
+
+## 学习建议（数仓工程师转型路径）
+
+> 你的优势在**数据建模 / SQL / Python / ETL**，薄弱在**前端（React/Next.js）、后端 Web（FastAPI）、Agent/LLM 编排**。建议**从你最熟的数据层读起，逐层向外扩**，每层配一个「动手实操」检验是否真懂。
+
+| # | 层 | 对应代码 | 你要补的知识 | 动手实操（检验） |
+|---|---|---|---|---|
+| ① | 数据层（你的主场） | `db/`、`data/generate_data.py`、星型模型 | 基本都会；新增 **pgvector**、**SQLAlchemy 2.0** | 在 `generate_data.py` 加一个 `dim_industry` 表，跑通 `make data` |
+| ② | 工具层 | `tools/base.py`、`datawarehouse.py`、`policy_search.py` | `ToolResult` 统一返回、`with_retry` 幂等/退避、**BM25 分块检索** | 给 `datawarehouse` 新增一条 canned SQL 工具 |
+| ③ | Agent 编排（转型核心） | `agents/`（orchestrator/pipeline/memo_agent/guardrails） | `@function_tool`、`@input/@output_guardrail`、`Runner`、**为什么确定性管线而非自由 ReAct** | 新增一个 `@function_tool`，让第7章结论能调用它 |
+| ④ | 后端 Web | `api/app.py` | FastAPI 路由、Pydantic v2 校验、**SSE 流式** | 加一个 `GET /report/{id}`（先 mock，再接通查询） |
+| ⑤ | 前端 | `apps/web/`（page/hook/components） | React hooks、App Router、TanStack Query、**消费 SSE** | 给报告页加「章节折叠/展开」交互 |
+| ⑥ | 工程化 | `Makefile`、`turbo.json`、`pyproject.toml` | Monorepo、uv、Turborepo、类型检查（mypy/ESLint） | 跑通 `make test-all`，逐行读懂每个 target |
+
+**建议顺序**：①②（发挥优势、建立信心）→ ③（核心转型点，重点投入）→ ④⑤（Web 技能，够用即可）→ ⑥（工程化收尾）。
+
+**三条学习原则**：
+- **先跑通、再读码**：每个模块都「跑起来 → 改一处 → 看效果」，比纯读代码快得多；[快速开始](#快速开始)已把最小闭环铺好。
+- **抓「为什么这样设计」**：读码时对照「四大设计原则」的「什么交给什么」，并回到[技术栈](#技术栈)「选型说明」理解每个选型的取舍——这是面试里最常被问到的点。
+- **前端够用即可**：对 Agent 方向，前端目标是「能独立把后端能力接出一个可用 UI」，不必深挖 CSS 工程与复杂交互；重心留在 ③。
 
 ## 路线图
 
