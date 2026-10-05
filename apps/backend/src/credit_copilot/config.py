@@ -11,11 +11,21 @@ class Settings(BaseSettings):
         env_file=".env", env_file_encoding="utf-8", extra="ignore"
     )
 
-    # --- LLM（OpenAI 兼容） ---
+    # --- LLM 提供商（默认 OpenAI；DeepSeek/通义/智谱走 OpenAI 兼容；Claude 走 Bedrock） ---
+    llm_provider: str = "openai"          # openai | deepseek | qwen | zhipu | bedrock
+    openai_api_key: str = ""
+    openai_base_url: str = "https://api.openai.com/v1"
+    openai_model: str = "gpt-4o-mini"
+
+    # --- OpenAI 兼容端点（deepseek/qwen/zhipu 复用） ---
     llm_api_key: str = ""
     llm_base_url: str = "https://api.deepseek.com"
     llm_model: str = "deepseek-chat"
     llm_reasoner_model: str = "deepseek-reasoner"
+
+    # --- Claude via AWS Bedrock ---
+    aws_region: str = "us-east-1"
+    bedrock_model: str = "anthropic.claude-3-5-sonnet-20241022-v2:0"
 
     # --- Embedding（OpenAI 兼容） ---
     embedding_api_key: str = ""

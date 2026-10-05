@@ -33,27 +33,30 @@
 
 | 设计原则 | 落点文件 | 关键实现 | 测试 |
 |---|---|---|---|
-| ① 任务拆解 | [scenarios/credit_memo.py](src/credit_copilot/scenarios/credit_memo.py) | 用**确定性 DAG**（LangGraph StateGraph）而非自由 ReAct；7 章节 = 7 节点，`collect_facts` 并行 fan-out | [test_credit_memo.py](tests/test_credit_memo.py) / [test_graph_smoke.py](tests/test_graph_smoke.py) |
-| ② 工具调用 | [tools/datawarehouse.py](src/credit_copilot/tools/datawarehouse.py) / [tools/policy_search.py](src/credit_copilot/tools/policy_search.py) | **明确"什么交给什么"**：确定性事实 → DB（参数化 canned SQL，不让 LLM 自由写 SQL）；政策约束 → RAG（BM25 分块检索）；推理成文 → LLM | [test_policy_search.py](tests/test_policy_search.py) |
-| ③ 异常处理 | [tools/base.py](src/credit_copilot/tools/base.py) | 统一 `ToolResult` 返回；`with_retry` 指数退避（仅瞬态错误重试）；`FatalError` 不重试；DB 层 `connect_timeout` + `statement_timeout`；**单章失败降级、不击穿整份报告** | [test_tools_base.py](tests/test_tools_base.py) |
-| ④ 结果校验 | [guardrails/sql_guard.py](src/credit_copilot/guardrails/sql_guard.py) + 场景内 `resolve_entity`/`validate_report` | 四道关卡：SQL 只读白名单（执行前）→ 实体消歧（0 命中拒答 / 多命中列候选）→ 数值/完整性/引用校验（可回炉成文）→ 事实核验 | [test_sql_guard.py](tests/test_sql_guard.py) / [test_credit_memo.py](tests/test_credit_memo.py) |
+| ① 任务拆解 | [agents/orchestrator.py](apps/backend/src/credit_copilot/agents/orchestrator.py) / [agents/pipeline.py](apps/backend/src/credit_copilot/agents/pipeline.py) | 用**确定性管线**（Python 编排函数）而非自由 ReAct；7 章节按 `resolve_entity → collect_facts → compliance → compose_report → validate` 顺序执行，`collect_facts` 并行 fan-out | [test_orchestrator.py](apps/backend/tests/test_orchestrator.py) / [test_credit_memo.py](apps/backend/tests/test_credit_memo.py) |
+| ② 工具调用 | [tools/datawarehouse.py](apps/backend/src/credit_copilot/tools/datawarehouse.py) / [tools/policy_search.py](apps/backend/src/credit_copilot/tools/policy_search.py) / [agents/memo_agent.py](apps/backend/src/credit_copilot/agents/memo_agent.py) | **明确"什么交给什么"**：确定性事实 → DB（参数化 canned SQL，不让 LLM 自由写 SQL）；政策约束 → RAG（BM25 分块检索）；推理成文 → LLM。Agent 侧用 `@function_tool` 薄封装同一套工具 | [test_policy_search.py](apps/backend/tests/test_policy_search.py) |
+| ③ 异常处理 | [tools/base.py](apps/backend/src/credit_copilot/tools/base.py) | 统一 `ToolResult` 返回；`with_retry` 指数退避（仅瞬态错误重试）；`FatalError` 不重试；DB 层 `connect_timeout` + `statement_timeout`；**单章失败降级、不击穿整份报告** | [test_tools_base.py](apps/backend/tests/test_tools_base.py) |
+| ④ 结果校验 | [guardrails/sql_guard.py](apps/backend/src/credit_copilot/guardrails/sql_guard.py) + [agents/guardrails.py](apps/backend/src/credit_copilot/agents/guardrails.py) | 四道关卡：SQL 只读白名单（执行前）→ 实体消歧（0 命中拒答 / 多命中列候选，等价 input guardrail tripwire）→ 数值/完整性/引用校验（可回炉成文）→ 输出 guardrail（结论长度/非空） | [test_sql_guard.py](apps/backend/tests/test_sql_guard.py) / [test_agents_sdk.py](apps/backend/tests/test_agents_sdk.py) |
 
 ## 架构
 
 ```
 一句「生成『恒远汽车零部件』的授信尽调报告」
   → FastAPI /report/stream (SSE 逐节点进度)
-    → LangGraph StateGraph（确定性 DAG）
-        resolve_entity           实体消歧：0命中拒答 / >1命中列候选
+    → orchestrator.run_report()（确定性管线，Python 编排）
+        resolve_entity           实体消歧：0命中拒答 / >1命中列候选（input guardrail）
         collect_facts            并行 fan-out 取数（DB 工具 + 政策检索）
         check_compliance         政策比对 → 合规 flag
-        compose_report           LLM 成文（仅"风险结论+成文"交给 LLM）
-        validate_report          四道校验（不过 → 回炉 compose_report）
+        compose_report           确定性拼 1-6 章 + Agents SDK 生成第7章结论（output guardrail）
+        validate_report          四道校验（不过 → 有界回炉 compose_report）
     → 工具层（全部返回 ToolResult）
         ├─ datawarehouse：canned SQL + 只读 guardrail + 超时
         ├─ policy_search：BM25 分块检索 + chunk 引用
-        └─ llm client：OpenAI 兼容 + 异常分类
+        └─ llm client：OpenAI / DeepSeek(兼容) / Bedrock(Claude) 多提供商 + 异常分类
+  → Next.js 16 前端（SSE 流式渲染进度 + 报告）
 ```
+
+> **为什么是「确定性管线 + Agents SDK」而非「LangGraph DAG」？** OpenAI Agents SDK 没有 DAG 原语，它是 agent-loop 框架。任务拆解用普通 Python 编排函数表达（这本身是更优、更可控的做法），SDK 贡献 `function_tool` / `input_guardrail` / `output_guardrail` / `Runner` / tracing。详见[阶段0技术选型](#技术栈)。
 
 ## 领域模型
 
@@ -71,57 +74,114 @@
 ## 快速开始
 
 ```bash
-# 0. 前置：uv、Docker
-cp .env.example .env          # 填入 LLM_API_KEY（DeepSeek 等）
-make setup                    # 安装依赖
-make data                     # 生成合成 CSV 到 data/seed/（无需数据库）
+# 0. 前置：uv、Docker、Node 20+
+cp apps/backend/.env.example apps/backend/.env   # 填入 OPENAI_API_KEY（或 LLM_API_KEY 走兼容端点）
+make setup                    # 安装后端依赖（uv）
+make data                     # 生成合成 CSV 到 apps/backend/data/seed/（无需数据库）
 make db-up                    # 启动 Postgres+pgvector
 make seed                     # 生成 + 灌库
 
 # 1. 起 API
 make run-api
 
-# 2. 同步生成报告（JSON）
+# 2. 起前端
+make web-setup && make web-dev   # http://localhost:3000
+
+# 3. 同步生成报告（JSON）
 curl -s -X POST localhost:8000/report \
   -H 'Content-Type: application/json' \
   -d '{"query":"生成『恒远汽车零部件有限公司』的授信尽调报告"}'
 
-# 3. 流式生成（SSE，逐节点进度）
+# 4. 流式生成（SSE，逐节点进度）
 curl -N -X POST localhost:8000/report/stream \
   -H 'Content-Type: application/json' \
   -d '{"query":"生成『恒远汽车零部件有限公司』的授信尽调报告"}'
 ```
 
-## 项目结构
+> 无 LLM key 时后端自动降级为「规则结论」仍可产出报告（见 [agents/memo_agent.py](apps/backend/src/credit_copilot/agents/memo_agent.py) 的 fallback 分支）。
+
+## 项目工程结构（Monorepo）
 
 ```
-src/credit_copilot/
-  guardrails/sql_guard.py       # 只读 SQL 白名单 / 行数上限（结果校验）
-  tools/base.py                 # ToolResult + with_retry（异常处理）
-  tools/datawarehouse.py        # canned SQL 工具（工具调用）
-  tools/policy_search.py        # BM25 政策检索 + chunk 引用（工具调用）
-  llm/client.py                 # OpenAI 兼容客户端 + 异常分类
-  scenarios/credit_memo.py      # 授信尽调 DAG（任务拆解 + 结果校验）
-  api/app.py                    # FastAPI /report、/report/stream
-docs/policy/*.md                # 政策文档语料（RAG 依据）
-tests/                          # 26 个单测，覆盖四原则
+credit-copilot/
+├── apps/
+│   ├── backend/                      # 后端：FastAPI + OpenAI Agents SDK（uv 管理）
+│   │   ├── pyproject.toml / uv.lock
+│   │   ├── .env.example
+│   │   ├── data/generate_data.py     # 合成数据
+│   │   ├── docs/policy/*.md          # 政策语料（RAG 依据）
+│   │   ├── tests/                    # 30 个单测，覆盖四原则
+│   │   └── src/credit_copilot/
+│   │       ├── agents/               # Agents SDK 编排层（见下方模块结构）
+│   │       ├── tools/                # 框架无关工具：DB / 政策检索 / with_retry
+│   │       ├── guardrails/           # SQL 只读白名单
+│   │       ├── llm/                  # 多提供商 LLM 客户端
+│   │       ├── db/  config.py        # 数据访问 + 配置
+│   │       └── api/app.py            # FastAPI /report、/report/stream
+│   └── web/                          # 前端：Next.js 16（npm 管理）
+│       ├── package.json / tsconfig.json / next.config.ts
+│       └── src/
+│           ├── app/                  # App Router（page / layout / providers）
+│           ├── features/report/      # 类型 + API client + SSE hook
+│           ├── components/           # 查询框、报告视图
+│           └── lib/                  # SSE 解析工具
+├── turbo.json                        # 统一任务编排（dev/build/lint/test）
+├── docker-compose.yml                # postgres（+ langfuse 可选）
+├── Makefile                          # 统一入口（backend + web 目标）
+└── README.md
+```
+
+### 后端模块结构（agents/ 编排层）
+
+```
+apps/backend/src/credit_copilot/agents/
+├── models.py          # Entity/Flag/Section/CreditMemo + 章节标题（无框架依赖，可独立测试）
+├── pipeline.py        # 确定性管线：resolve_entity / collect_facts(并行) / build_compliance_flags
+├── memo_agent.py      # 成文 Agent + @function_tool 注册 + 多提供商模型选择
+├── guardrails.py      # @output_guardrail（结论非空/长度上限）
+└── orchestrator.py    # run_report()：显式步骤 + 有界回炉；run_report_stream()：SSE 事件
+```
+
+### 前端模块结构（Next.js 16 App Router）
+
+```
+apps/web/src/
+├── app/                        # page.tsx（查询页）+ layout.tsx + providers.tsx（TanStack Query）
+├── features/report/
+│   ├── types.ts                # 与后端 CreditMemo 对齐的 TS 类型
+│   ├── api.ts                  # 类型化 API client（NEXT_PUBLIC_API_BASE_URL）
+│   └── useReportStream.ts      # SSE 解析 hook（node/done/error 事件）
+├── components/                 # QueryForm / ReportView（章节卡片、合规 flag、数据缺口）
+└── lib/sse.ts                  # fetch + ReadableStream 的 SSE 解析器（POST 兼容）
 ```
 
 ## 技术栈
 
-- **Agent 编排**：LangGraph（确定性 DAG + 条件回边）
-- **LLM**：DeepSeek（OpenAI 兼容，通义/智谱可无缝切换）
-- **检索**：BM25-lite（离线、零 embedding key 降级），阶段1 可叠 BGE-M3 向量初筛 + 重排
-- **向量库 + 数仓**：PostgreSQL 16 + pgvector
-- **后端/前端**：FastAPI（SSE）/ Streamlit
-- **可观测/评估**：Langfuse / RAGAS + SQL 黄金集（阶段4）
+技术选型对齐**欧美主流**（便于远程工作无缝切换），完整选型依据见下方「选型说明」。
+
+| 层 | 选型 | 说明 |
+|---|---|---|
+| Agent 编排 | **OpenAI Agents SDK**（`openai-agents`） | 官方，内置 `function_tool` / guardrails / tracing / Session，token 效率最高 |
+| 后端 | **FastAPI + Pydantic v2 + uvicorn** | AI 产品 2026 主流；SSE 流式 |
+| 前端 | **Next.js 16（App Router, Turbopack）+ React 19 + TS5 + Tailwind v4 + TanStack Query v5** | DoorDash/StockX/Zillow 在用，简历信号最强 |
+| 数据 | **PostgreSQL 16 + pgvector + psycopg3 + SQLAlchemy 2.0** | 共识选择 |
+| 包管理 | **uv（后端）+ npm（前端）+ Turborepo（统一任务）** | 现代默认 |
+| LLM 提供商 | 默认 **OpenAI**；DeepSeek/通义/智谱走 `OpenAIChatCompletionsModel(base_url=…)`；Claude 走 **AWS Bedrock** | 欧美默认 OpenAI/Anthropic，兼容国内 |
+| 检索 | BM25-lite（离线、零 embedding key 降级），阶段1 可叠 BGE-M3 向量初筛 + 重排 | —— |
+| 可观测/评估 | Agents SDK 内置 tracing（暂）；Langfuse / RAGAS + SQL 黄金集（阶段4） | —— |
+
+### 选型说明（为什么是这套）
+
+- **OpenAI Agents SDK vs LangGraph**：LangGraph 是「最 production-ready」的图编排框架，但 Agents SDK 更简洁、guardrails/tracing 内置、token 效率最高，且与 OpenAI-first 生态一致。代价是它没有确定性 DAG 原语——本项目把确定性流程保留在 Python 编排函数里（见[架构](#架构)），SDK 只负责 LLM 步与校验。同时它是 OpenAI-first，用 Claude 需经 Bedrock（本项目已内置该路径）。
+- **Next.js + FastAPI**：2026 年 AI 产品的主流前后端组合，直连 SSE、零 Node BFF 复杂度。
+- **Monorepo**：uv + npm + Turborepo 是现代欧美团队默认；后端绝对导入 `from credit_copilot…` 不受层级影响，`apps/backend/docs/policy` 的语料相对路径保持不变。
 
 ## 路线图
 
-- [x] 阶段0 · 地基与数据（星型模型 + 合成数据 + 脚手架）
+- [x] 阶段0 · 地基与数据（星型模型 + 合成数据 + Monorepo 脚手架 + Agents SDK 编排）
 - [~] 阶段1 · RAG 管线（分块 + BM25 检索已落地；hybrid 向量 + rerank 待补）
 - [~] 阶段2 · Text-to-SQL（报告走 canned SQL 已落地；自由 Text-to-SQL 留给 T1 问答）
-- [~] 阶段3 · Agent 编排（首个场景「授信尽调报告」DAG + Guardrails + API 已落地；T1 问答 Router、T3 流程自动化待做）
+- [~] 阶段3 · Agent 编排（首个场景「授信尽调报告」管线 + Guardrails + API + 前端已落地；T1 问答 Router、T3 流程自动化待做）
 - [ ] 阶段4 · 评估与可观测（RAGAS + SQL 黄金集 + Langfuse）
 - [ ] 阶段5 · 企业化抽象（DataSource/DocumentSource 接口 + 文档）
 
@@ -138,3 +198,5 @@ tests/                          # 26 个单测，覆盖四原则
 
 - **财务分析章节**：当前数据模型无财务报表，报告以 `data_gaps` 显式声明「无财务数据/待补充」——这本身是**结果校验不编造**的正面演示；如需补全，扩展 `fact_financial` 表 + 财报 PDF 解析。
 - **行业分析**：暂以政策文档中的行业准入描述代替，依赖外部行业库的部分留待后续。
+- **OpenAI-first 取舍**：Agents SDK 默认走 OpenAI 端点；Claude 经 Bedrock 直连（不走 SDK），国内兼容端点走 `OpenAIChatCompletionsModel` 并关闭 tracing。
+- **数据库迁移**：当前用 `schema.sql` 建表，Alembic 迁移列入后续硬化（阶段5）。

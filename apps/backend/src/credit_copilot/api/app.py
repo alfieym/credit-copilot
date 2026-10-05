@@ -5,16 +5,21 @@ import json
 from collections.abc import AsyncGenerator
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from credit_copilot.scenarios.credit_memo import (
-    build_graph,
-    initial_state,
-    run_report,
-)
+from credit_copilot.agents.orchestrator import run_report, run_report_stream
 
 app = FastAPI(title="信贷分析师 Copilot", version="0.1.0")
+
+# 前端（Next.js）直连：开发期放行任意源，生产收紧为 NEXT_PUBLIC_API_BASE_URL 所在域
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 class ReportRequest(BaseModel):
@@ -38,27 +43,20 @@ def _sse(event: str, data: dict) -> str:
 
 
 async def _stream(query: str) -> AsyncGenerator[str, None]:
-    """流式进度：start → 逐节点 node → done/error。"""
+    """流式进度：start → 逐阶段 → done/error。"""
     yield _sse("start", {"query": query})
-    graph = build_graph()
-    report_obj = None
-    errors: list[str] = []
     try:
-        for chunk in graph.stream(initial_state(query), stream_mode="updates"):
-            node = next(iter(chunk))
-            upd = chunk[node]
-            if "report" in upd:
-                report_obj = upd["report"]
-            if "validation_errors" in upd:
-                errors = upd["validation_errors"]
-            yield _sse("node", {"node": node})
+        for stage in run_report_stream(query):
+            if stage.get("status") == "error":
+                yield _sse("error", {"message": stage.get("message", "未知错误"),
+                                     "candidates": stage.get("candidates", [])})
+                return
+            if "report" in stage:
+                yield _sse("done", {"report": stage["report"].model_dump()})
+            else:
+                yield _sse("node", {"stage": stage["stage"], "status": stage["status"]})
     except Exception as e:  # noqa: BLE001 —— 任何异常都以 SSE error 事件返回
         yield _sse("error", {"message": str(e)})
-        return
-    if report_obj is not None:
-        yield _sse("done", {"report": report_obj.model_dump()})
-    else:
-        yield _sse("error", {"message": "；".join(errors) or "未生成报告"})
 
 
 @app.post("/report/stream")

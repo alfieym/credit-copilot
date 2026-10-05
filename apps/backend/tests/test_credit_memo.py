@@ -1,14 +1,11 @@
 """首个场景：实体消歧 + 合规规则 + 成文 + 结果校验（均离线可测）。"""
 from __future__ import annotations
 
-from credit_copilot.scenarios.credit_memo import (
-    CreditMemo,
-    Entity,
-    Section,
+from credit_copilot.agents.models import CreditMemo, Entity, Section, extract_entity_hint
+from credit_copilot.agents.pipeline import (
     _citation_coverage,
     build_compliance_flags,
     compose_report,
-    extract_entity_hint,
     validate_report,
 )
 from credit_copilot.tools.base import ToolResult
@@ -91,8 +88,7 @@ def test_compose_report_full_offline():
         }]),
         "policy": ToolResult.success([]),
     }
-    state = {"entity": ent, "facts": facts, "compliance": [], "compose_attempts": 0}
-    memo = compose_report(state)["report"]
+    memo = compose_report(ent, facts, [])
 
     assert len(memo.sections) == 7
     assert memo.entity_name == ent.name
@@ -102,13 +98,13 @@ def test_compose_report_full_offline():
     assert any("无财务数据" in g for g in memo.data_gaps)
 
 
-# --- 结果校验节点 -----------------------------------------------------------
+# --- 结果校验 ---------------------------------------------------------------
 def test_validate_report_missing_section():
     memo = CreditMemo(
         entity_name="X",
         sections=[Section(title="评级情况", content="x", citations=["[t:x]"])],
     )
-    errs = validate_report({"report": memo})["validation_errors"]
+    errs = validate_report(memo)
     assert any("缺章节" in e for e in errs)
 
 

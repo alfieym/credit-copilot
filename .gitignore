@@ -9,14 +9,22 @@ build/
 
 # 环境与密钥
 .env
+.env.local
 
 # 工具缓存
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
 
+# Node / Next.js
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+next-env.d.ts
+
 # 生成的数据（可复现，用 `make data` 重新生成）
-data/seed/*.csv
+**/data/seed/*.csv
 
 # 系统
 .DS_Store
