@@ -27,12 +27,12 @@ const INITIAL: ReportStreamState = {
   candidates: [],
 };
 
-/** 与后端 orchestrator 的阶段名对齐，用于渲染中文标签。 */
+/** Aligned with the backend orchestrator stage names; used for rendering labels. */
 export const STAGE_LABELS: Record<string, string> = {
-  resolve_entity: "解析主体",
-  collect_facts: "采集事实数据",
-  compliance: "合规规则核验",
-  compose_report: "撰写报告",
+  resolve_entity: "Resolving entity",
+  collect_facts: "Collecting facts",
+  compliance: "Checking compliance rules",
+  compose_report: "Drafting report",
 };
 
 export function useReportStream() {
@@ -70,7 +70,7 @@ export function useReportStream() {
           setState((s) => ({
             ...s,
             status: "error",
-            error: String(ev.message ?? "未知错误"),
+            error: String(ev.message ?? "Unknown error"),
             candidates: (ev.candidates as string[]) ?? [],
           }));
         }

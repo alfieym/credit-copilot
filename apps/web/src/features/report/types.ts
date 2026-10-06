@@ -1,6 +1,6 @@
 /**
- * 与后端 `credit_copilot.agents.models` 对齐的类型定义。
- * 后端返回的是 `CreditMemo.model_dump()`（snake_case），这里保持一致。
+ * Type definitions aligned with the backend's `credit_copilot.agents.models`.
+ * The backend returns `CreditMemo.model_dump()` (snake_case), which is kept here.
  */
 export interface Section {
   title: string;

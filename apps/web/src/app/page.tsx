@@ -14,7 +14,7 @@ export default function Home() {
         <header className="flex flex-col gap-2">
           <div className="flex items-center justify-between">
             <h1 className="text-2xl font-bold tracking-tight">
-              信贷分析师 Copilot
+              Credit Copilot
             </h1>
             {status !== "idle" && (
               <button
@@ -22,12 +22,13 @@ export default function Home() {
                 onClick={reset}
                 className="rounded-md px-2 py-1 text-xs text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-900 dark:hover:text-zinc-200"
               >
-                清空重来
+                Reset
               </button>
             )}
           </div>
           <p className="text-sm text-zinc-500 dark:text-zinc-400">
-            输入主体名称，自动生成结构化授信尽调报告（确定性管线 + LLM 成文）。
+            Enter an entity name to generate a structured credit due-diligence
+            report (deterministic pipeline + LLM drafting).
           </p>
         </header>
 

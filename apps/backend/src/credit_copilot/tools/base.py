@@ -1,12 +1,13 @@
-"""工具层基础：结构化结果 + 超时 + 指数退避重试。
+"""Tool layer base: structured results + timeout + exponential-backoff retry.
 
-这是「异常处理」设计原则的落点——所有工具都返回 :class:`ToolResult` 而非直接抛异常，
-让场景层能按章节降级（单点失败不击穿整份报告）。
+This is where the "exception handling" design principle lands — every tool returns a
+:class:`ToolResult` instead of raising, so the scenario layer can degrade per-section
+(a single-point failure never breaks the whole report).
 
-异常分类：
-- :class:`TransientError`  瞬态错误（限流 / 5xx / 连接失败）→ 有限重试 + 指数退避
-- :class:`ToolTimeout`     超时 → 有限重试后降级
-- :class:`FatalError`      致命错误（参数错 / 权限拒 / 数据缺失）→ 不重试，立即失败
+Exception taxonomy:
+- :class:`TransientError`  transient (rate limit / 5xx / connection) -> bounded retry + backoff
+- :class:`ToolTimeout`     timeout -> bounded retry then degrade
+- :class:`FatalError`      fatal (bad argument / permission / missing data) -> no retry, fail fast
 """
 from __future__ import annotations
 
@@ -20,24 +21,25 @@ T = TypeVar("T")
 
 
 class ToolError(Exception):
-    """工具调用失败的基类。"""
+    """Base class for tool-call failures."""
 
 
 class TransientError(ToolError):
-    """瞬态错误：可重试。"""
+    """Transient error: retryable."""
 
 
 class ToolTimeout(ToolError):
-    """工具超时：有限重试后可降级。"""
+    """Tool timeout: degrade after bounded retries."""
 
 
 class FatalError(ToolError):
-    """致命错误：不重试。"""
+    """Fatal error: do not retry."""
 
 
 @dataclass
 class ToolResult:
-    """工具统一返回结构。``fallback_applied`` 标记是否走了降级路径。"""
+    """Unified tool return structure.
+    ``fallback_applied`` marks whether the degraded path was taken."""
 
     ok: bool
     data: Any = None
@@ -56,10 +58,11 @@ class ToolResult:
 def with_retry(
     fn: Callable[..., T], *, retries: int = 3, backoff: float = 0.5
 ) -> Callable[..., ToolResult]:
-    """把会抛 :class:`ToolError` 的函数包装成返回 :class:`ToolResult` 的工具。
+    """Wrap a function that raises :class:`ToolError` into a tool returning :class:`ToolResult`.
 
-    - ``FatalError`` 直接失败，不重试；
-    - ``TransientError`` / ``ToolTimeout`` 指数退避重试 ``retries`` 次，仍失败则标记降级。
+    - ``FatalError`` fails immediately (no retry);
+    - ``TransientError`` / ``ToolTimeout`` retry with exponential backoff ``retries``
+      times, then mark the degraded path.
     """
 
     @functools.wraps(fn)

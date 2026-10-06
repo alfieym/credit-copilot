@@ -1,8 +1,9 @@
-"""数仓工具：确定性 canned SQL + 实体解析 + 只读 guardrail。
+"""Data-warehouse tools: deterministic canned SQL + entity resolution + read-only guardrail.
 
-「工具调用」设计原则：报告主数据走 DB（参数化 SQL），不让 LLM 自由写 SQL。
-自由 Text-to-SQL 留给 T1 问答场景（阶段2）。这里每个工具都经 ``with_retry``
-包装，返回 :class:`ToolResult`，并带 ``connect_timeout`` / ``statement_timeout``。
+Tool-calling design principle: report data comes from the DB via parameterized SQL;
+the LLM never writes free-form SQL. Free text-to-SQL is reserved for the T1 Q&A
+scenario (phase 2). Every tool here is wrapped by ``with_retry``, returns a
+:class:`ToolResult`, and carries ``connect_timeout`` / ``statement_timeout``.
 """
 from __future__ import annotations
 
@@ -20,70 +21,72 @@ from credit_copilot.tools.base import (
 
 
 def _connect() -> psycopg.Connection:
-    """建立连接：连接超时 5s。连接失败视为瞬态错误（可重试）。"""
+    """Open a connection with a 5s timeout. Connection failure is a transient (retryable) error."""
     cfg = get_settings()
     try:
         return psycopg.connect(
             cfg.postgres_dsn,
             connect_timeout=5,
-            options="-c statement_timeout=10000",  # 单条 SQL 10s 超时
+            options="-c statement_timeout=10000",  # 10s per-statement timeout
         )
     except psycopg.OperationalError as e:
-        raise TransientError(f"DB 连接失败: {e}") from e
+        raise TransientError(f"DB connection failed: {e}") from e
 
 
 def _run_readonly(sql: str, params: tuple = ()) -> list[dict]:
-    """执行只读 SQL：先过 guardrail，再执行，行数超限抛 FatalError。"""
+    """Run a read-only SQL statement: guardrail first, then execute; too many rows -> FatalError."""
     validate_sql(sql)
     with _connect() as conn, conn.cursor(row_factory=dict_row) as cur:
         try:
             cur.execute(sql, params)
             rows = cur.fetchall()
         except psycopg.Error as e:
-            # statement_timeout 触发 → SQLSTATE 57014 query_canceled
+            # statement_timeout fires as SQLSTATE 57014 query_canceled
             if getattr(e, "sqlstate", None) == "57014":
-                raise ToolTimeout(f"SQL 超时: {e}") from e
-            raise FatalError(f"SQL 执行失败: {e}") from e
+                raise ToolTimeout(f"SQL timeout: {e}") from e
+            raise FatalError(f"SQL execution failed: {e}") from e
     if len(rows) > MAX_ROWS:
-        raise FatalError(f"返回 {len(rows)} 行超上限 {MAX_ROWS}")
+        raise FatalError(f"Returned {len(rows)} rows, over the limit of {MAX_ROWS}")
     return rows
 
 
 # --------------------------------------------------------------------------- #
-# 实体解析
+# Entity resolution
 # --------------------------------------------------------------------------- #
 @with_retry
 def search_borrowers(name: str) -> list[dict]:
-    """按名称模糊匹配借款人。"""
+    """Fuzzy-match borrowers by name (matches either the Chinese or English name)."""
     return _run_readonly(
-        "SELECT borrower_id, group_id, borrower_name, country, industry, "
-        "legal_type, internal_rating, status "
-        "FROM dim_borrower WHERE borrower_name ILIKE %s ORDER BY borrower_id",
-        (f"%{name}%",),
+        "SELECT borrower_id, group_id, borrower_name_cn, borrower_name_en, country, "
+        "industry, legal_type, internal_rating, status "
+        "FROM dim_borrower WHERE borrower_name_cn ILIKE %s OR borrower_name_en ILIKE %s "
+        "ORDER BY borrower_id",
+        (f"%{name}%", f"%{name}%"),
     )
 
 
 @with_retry
 def search_groups(name: str) -> list[dict]:
-    """按名称模糊匹配借款集团。"""
+    """Fuzzy-match borrowing groups by name (matches either the Chinese or English name)."""
     return _run_readonly(
-        "SELECT group_id, group_name, country, industry, consolidated_exposure_limit, "
-        "risk_consolidation, status "
-        "FROM dim_borrowing_group WHERE group_name ILIKE %s ORDER BY group_id",
-        (f"%{name}%",),
+        "SELECT group_id, group_name_cn, group_name_en, country, industry, "
+        "consolidated_exposure_limit, risk_consolidation, status "
+        "FROM dim_borrowing_group WHERE group_name_cn ILIKE %s OR group_name_en ILIKE %s "
+        "ORDER BY group_id",
+        (f"%{name}%", f"%{name}%"),
     )
 
 
 # --------------------------------------------------------------------------- #
-# 报告各章节事实
+# Per-section report facts
 # --------------------------------------------------------------------------- #
 @with_retry
 def get_borrower_overview(borrower_id: int) -> list[dict]:
-    """借款人 + 所属集团概况。"""
+    """Borrower + its group overview."""
     return _run_readonly(
-        "SELECT b.borrower_id, b.borrower_name, b.country, b.industry, b.legal_type, "
-        "b.internal_rating, g.group_id, g.group_name, g.industry AS group_industry, "
-        "g.risk_consolidation, g.status "
+        "SELECT b.borrower_id, b.borrower_name_cn, b.borrower_name_en, b.country, "
+        "b.industry, b.legal_type, b.internal_rating, g.group_id, g.group_name_cn, "
+        "g.group_name_en, g.industry AS group_industry, g.risk_consolidation, g.status "
         "FROM dim_borrower b LEFT JOIN dim_borrowing_group g ON b.group_id = g.group_id "
         "WHERE b.borrower_id = %s",
         (borrower_id,),
@@ -92,17 +95,18 @@ def get_borrower_overview(borrower_id: int) -> list[dict]:
 
 @with_retry
 def get_group_overview(group_id: int) -> list[dict]:
-    """集团概况。"""
+    """Group overview."""
     return _run_readonly(
-        "SELECT group_id, group_name, country, industry, consolidated_exposure_limit, "
-        "risk_consolidation, status FROM dim_borrowing_group WHERE group_id = %s",
+        "SELECT group_id, group_name_cn, group_name_en, country, industry, "
+        "consolidated_exposure_limit, risk_consolidation, status "
+        "FROM dim_borrowing_group WHERE group_id = %s",
         (group_id,),
     )
 
 
 @with_retry
 def get_ratings(entity_type: str, entity_id: int) -> list[dict]:
-    """评级（含历史，时间维降序：当前有效在前）。"""
+    """Ratings (including history; time dimension descending: current first)."""
     return _run_readonly(
         "SELECT rating_id, entity_type, entity_id, agency, grade, outlook, methodology, "
         "valid_from, valid_to, rating_date "
@@ -113,7 +117,7 @@ def get_ratings(entity_type: str, entity_id: int) -> list[dict]:
 
 @with_retry
 def get_facilities(borrower_id: int) -> list[dict]:
-    """主额度 + 子额度。"""
+    """Main facilities + sub facilities."""
     return _run_readonly(
         "SELECT m.main_facility_id, m.facility_name, m.facility_type, m.currency, "
         "m.committed_amount, m.maturity_date, m.purpose, m.status, "
@@ -127,9 +131,9 @@ def get_facilities(borrower_id: int) -> list[dict]:
 
 @with_retry
 def get_exposure(group_id: int) -> list[dict]:
-    """集团合并敞口 vs 限额（最新时点）。"""
+    """Group consolidated exposure vs. limit (latest as-of date)."""
     return _run_readonly(
-        "SELECT g.group_id, g.group_name, g.consolidated_exposure_limit, "
+        "SELECT g.group_id, g.group_name_cn, g.group_name_en, g.consolidated_exposure_limit, "
         "COALESCE(SUM(u.utilized_amount), 0) AS total_utilized "
         "FROM dim_borrowing_group g "
         "JOIN dim_borrower b ON b.group_id = g.group_id "
@@ -144,7 +148,7 @@ def get_exposure(group_id: int) -> list[dict]:
 
 @with_retry
 def get_involved_parties(borrower_id: int) -> list[dict]:
-    """相关方与担保结构。"""
+    """Related parties and guarantee structure."""
     return _run_readonly(
         "SELECT p.involved_party_id, p.main_facility_id, p.party_name, p.role, "
         "p.ownership_pct, p.country, p.is_internal "

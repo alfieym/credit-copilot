@@ -14,14 +14,14 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "信贷分析师 Copilot",
-  description: "基于 OpenAI Agents SDK 的授信尽调报告生成器",
+  title: "Credit Copilot",
+  description: "A credit due-diligence report generator built on the OpenAI Agents SDK",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
-      lang="zh-CN"
+      lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">

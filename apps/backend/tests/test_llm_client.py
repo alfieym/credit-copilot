@@ -1,4 +1,4 @@
-"""LLM 客户端：缺 key 时优雅降级（不发起网络调用）。"""
+"""LLM client: degrade gracefully when the API key is missing (no network call)."""
 from __future__ import annotations
 
 import pytest

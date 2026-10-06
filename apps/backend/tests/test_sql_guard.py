@@ -1,4 +1,4 @@
-"""结果校验（第 1 关）：SQL 只读白名单。"""
+"""Result validation (gate 1): read-only SQL whitelist."""
 from __future__ import annotations
 
 import pytest
@@ -12,7 +12,7 @@ def test_allows_select():
 
 def test_allows_join():
     validate_sql(
-        "SELECT b.borrower_id, g.group_name FROM dim_borrower b "
+        "SELECT b.borrower_id, g.group_name_en FROM dim_borrower b "
         "JOIN dim_borrowing_group g ON b.group_id = g.group_id WHERE b.borrower_id = %s"
     )
 

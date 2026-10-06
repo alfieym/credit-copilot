@@ -1,4 +1,4 @@
-"""领域模型与确定性辅助（无框架依赖，可独立测试）。"""
+"""Domain models and deterministic helpers (no framework dependency; independently testable)."""
 from __future__ import annotations
 
 import re
@@ -7,13 +7,13 @@ from dataclasses import dataclass
 from pydantic import BaseModel, Field
 
 SECTION_TITLES = [
-    "借款人及集团概况",
-    "评级情况",
-    "授信方案",
-    "敞口与限额使用",
-    "相关方与担保结构",
-    "政策合规核验",
-    "风险点与结论",
+    "Borrower & Group Overview",
+    "Ratings",
+    "Credit Facilities",
+    "Exposure & Limit Utilization",
+    "Related Parties & Guarantees",
+    "Policy & Compliance Check",
+    "Risk Points & Conclusion",
 ]
 
 GRADES = [
@@ -25,7 +25,7 @@ _GRADE_RANK = {g: i for i, g in enumerate(GRADES)}
 
 
 def _grade_at_or_below(grade: str, boundary: str) -> bool:
-    """评级是否 <= boundary（索引越大评级越差）。"""
+    """Whether ``grade`` is at or below ``boundary`` (a larger index means a worse rating)."""
     return _GRADE_RANK.get(grade, 999) >= _GRADE_RANK.get(boundary, 999)
 
 
@@ -33,15 +33,21 @@ def _grade_at_or_below(grade: str, boundary: str) -> bool:
 class Entity:
     kind: str                 # "borrower" / "group"
     id: int
-    name: str
+    name_cn: str = ""
+    name_en: str = ""
     group_id: int | None = None
+
+    @property
+    def name(self) -> str:
+        """Display name: English first, with the Chinese name in parentheses when present."""
+        return f"{self.name_en} ({self.name_cn})" if self.name_cn else self.name_en
 
 
 @dataclass
 class Flag:
     level: str                # error / warning / info
     rule: str
-    policy_ref: str           # 形如 "评级准入政策#评级准入线"
+    policy_ref: str           # e.g. "rating-access-policy#Rating Threshold"
     detail: str
 
 
@@ -60,10 +66,10 @@ class CreditMemo(BaseModel):
 
 
 class EntityResolutionError(Exception):
-    """实体消歧失败：0 命中或 >1 命中。
+    """Entity-resolution failure: 0 matches or >1 match.
 
-    等价于 OpenAI Agents SDK 的 input guardrail tripwire——在 Agent 运行前
-    就拦截，避免「硬猜」错误主体。
+    Equivalent to an OpenAI Agents SDK input-guardrail tripwire: it intercepts
+    before the agent runs, avoiding a hard "guess" at the wrong entity.
     """
 
     def __init__(self, message: str, candidates: list[Entity] | None = None) -> None:
@@ -74,20 +80,41 @@ class EntityResolutionError(Exception):
 
 _QUOTED = re.compile(r"[『「《\"'`]([^』」》\"'`]+)[』」》\"'`]")
 
+_CN_VERBS = ("生成", "撰写", "分析", "查询", "查")
+_CN_SUFFIXES = ("的授信尽调报告", "授信尽调报告", "的尽调报告", "尽调报告",
+                "授信报告", "的报告")
+
+_EN_LEADING = re.compile(
+    r"(?i)^(please\s+)?(generate|create|write|analyze|query|make|produce)\b\s*"
+    r"(a\s+|an\s+|the\s+)?(credit\s+|due[\s-]*diligence\s+)?(report|memo)\s+(for|of|about|on)\s+"
+)
+_EN_LEADING_VERB = re.compile(
+    r"(?i)^(please\s+)?(generate|create|write|analyze|query|make|produce)\b\s*"
+)
+_EN_TRAILING = re.compile(r"(?i)\s+(credit\s+|due[\s-]*diligence\s+)?(report|memo)\.?\s*$")
+
 
 def extract_entity_hint(query: str) -> str:
-    """从问题里提取主体名称（确定性启发式；生产可换 LLM 抽取）。"""
+    """Extract the entity name from a query
+    (deterministic bilingual heuristic; production could use LLM extraction)."""
     m = _QUOTED.search(query)
     if m:
         return m.group(1).strip()
     hint = query.strip()
-    for verb in ("生成", "撰写", "分析", "查询", "查"):
+
+    # Chinese: strip a leading verb, then a trailing report suffix.
+    for verb in _CN_VERBS:
         if hint.startswith(verb):
-            hint = hint[len(verb):]
+            hint = hint[len(verb):].lstrip()
             break
-    for suffix in ("的授信尽调报告", "授信尽调报告", "的尽调报告", "尽调报告",
-                   "授信报告", "的报告"):
+    for suffix in _CN_SUFFIXES:
         if hint.endswith(suffix):
-            hint = hint[: -len(suffix)]
+            hint = hint[: -len(suffix)].rstrip()
             break
+
+    # English: strip "generate a report for …" / "analyze …" prefixes and a trailing "report".
+    hint = _EN_LEADING.sub("", hint)
+    hint = _EN_LEADING_VERB.sub("", hint)
+    hint = _EN_TRAILING.sub("", hint)
+
     return hint.strip(" \t\n，。,:：")

@@ -1,1 +1,1 @@
-"""LLM 客户端：OpenAI 兼容，带超时与异常分类。"""
+"""LLM client: OpenAI-compatible, with timeout and exception classification."""

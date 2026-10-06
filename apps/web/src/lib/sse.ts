@@ -1,8 +1,9 @@
 /**
- * 基于 fetch 的 SSE 解析器。
+ * fetch-based SSE parser.
  *
- * 后端 `/report/stream` 是 POST 端点，浏览器原生 `EventSource` 只支持 GET，
- * 因此这里用 `fetch` + `ReadableStream` 逐行读取 `data: {json}\n\n` 帧。
+ * The backend `/report/stream` is a POST endpoint; the browser-native `EventSource`
+ * only supports GET, so we read `data: {json}\n\n` frames line-by-line with
+ * `fetch` + `ReadableStream`.
  */
 export interface SSEEvent {
   event: string;
@@ -25,7 +26,7 @@ export async function* streamSSE(
   });
 
   if (!res.ok || !res.body) {
-    throw new Error(`请求失败：HTTP ${res.status}`);
+    throw new Error(`Request failed: HTTP ${res.status}`);
   }
 
   const reader = res.body.getReader();

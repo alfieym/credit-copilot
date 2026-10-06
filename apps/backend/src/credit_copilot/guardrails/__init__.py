@@ -1,1 +1,1 @@
-"""Guardrails：SQL 只读白名单等执行前校验。"""
+"""Guardrails: pre-execution checks such as the read-only SQL whitelist."""

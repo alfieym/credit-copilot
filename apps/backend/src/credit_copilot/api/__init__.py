@@ -1,1 +1,1 @@
-"""FastAPI 接口层。"""
+"""FastAPI API layer."""

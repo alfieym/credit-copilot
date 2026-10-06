@@ -1,4 +1,4 @@
-"""异常处理：with_retry 的重试 / 降级 / 不重试语义。"""
+"""Exception handling: with_retry retry / degrade / no-retry semantics."""
 from __future__ import annotations
 
 from credit_copilot.tools.base import FatalError, TransientError, with_retry
@@ -15,7 +15,7 @@ def test_fatal_no_retry():
     r = f()
     assert r.ok is False
     assert r.fallback_applied is False
-    assert calls["n"] == 1  # 致命错误不重试
+    assert calls["n"] == 1  # fatal error is not retried
 
 
 def test_transient_retries_then_fallback(monkeypatch):
@@ -30,7 +30,7 @@ def test_transient_retries_then_fallback(monkeypatch):
     r = f()
     assert r.ok is False
     assert r.fallback_applied is True
-    assert calls["n"] == 4  # retries=3 → 共 4 次尝试
+    assert calls["n"] == 4  # retries=3 -> 4 total attempts
 
 
 def test_success():

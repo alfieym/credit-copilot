@@ -1,4 +1,4 @@
-"""OpenAI Agents SDK：function_tool 注册 + 成文 Agent 构建 + 离线降级。"""
+"""OpenAI Agents SDK: function_tool registration + drafting-agent build + offline degradation."""
 from __future__ import annotations
 
 from credit_copilot.agents.memo_agent import MEMO_TOOLS, build_composer_agent, synthesize_conclusion
@@ -19,7 +19,7 @@ def test_composer_agent_builds_offline():
 
 
 def test_synthesize_conclusion_offline_fallback():
-    ent = Entity(kind="borrower", id=1, name="X")
+    ent = Entity(kind="borrower", id=1, name_en="X")
     text, cites, _ = synthesize_conclusion(ent, [])
-    assert "LLM 合成不可用" in text  # 无 key → 降级为规则摘要
+    assert "LLM synthesis unavailable" in text  # no key -> degrade to rule summary
     assert cites == []

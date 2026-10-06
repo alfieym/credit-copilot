@@ -3,8 +3,8 @@
 import { useState, type FormEvent } from "react";
 
 const EXAMPLES = [
-  "生成「北京华信科技有限公司」的授信尽调报告",
-  "查询「深圳市智达电子有限公司」的授信风险",
+  "generate a report for Huayu Software Services PLC",
+  "analyze Meridian Display Technology Co., Ltd.",
 ];
 
 export function QueryForm({
@@ -30,7 +30,7 @@ export function QueryForm({
           type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="输入主体名称或查询问题，如『北京华信科技有限公司』"
+          placeholder="Enter an entity name or query, e.g. Huayu Software Services PLC"
           className="flex-1 rounded-lg border border-zinc-300 px-4 py-3 text-sm outline-none focus:border-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:focus:border-zinc-400"
         />
         <button
@@ -38,7 +38,7 @@ export function QueryForm({
           disabled={running || !query.trim()}
           className="rounded-lg bg-zinc-900 px-6 py-3 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
         >
-          {running ? "生成中…" : "生成报告"}
+          {running ? "Generating…" : "Generate Report"}
         </button>
       </div>
       <div className="flex flex-wrap gap-2">

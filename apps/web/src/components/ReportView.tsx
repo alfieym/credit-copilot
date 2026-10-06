@@ -76,7 +76,8 @@ export function ReportView({
   if (status === "idle") {
     return (
       <p className="text-sm text-zinc-500 dark:text-zinc-400">
-        输入主体名称后点击「生成报告」，将在这里实时展示生成进度与报告结果。
+        Enter an entity name and click &quot;Generate Report&quot; to see progress
+        and results here in real time.
       </p>
     );
   }
@@ -88,7 +89,7 @@ export function ReportView({
         {candidates.length > 0 && (
           <div className="mt-3">
             <p className="mb-1 text-xs text-red-600 dark:text-red-400">
-              可能是以下主体，请精确指定其一：
+              This may match one of the following entities; please specify one exactly:
             </p>
             <ul className="list-inside list-disc text-sm text-red-700 dark:text-red-300">
               {candidates.map((c) => (
@@ -110,9 +111,9 @@ export function ReportView({
   return (
     <div className="flex flex-col gap-6">
       <header>
-        <h2 className="text-xl font-bold">{report.entity_name} · 授信尽调报告</h2>
+        <h2 className="text-xl font-bold">{report.entity_name} · Credit Due-Diligence Report</h2>
         <p className="mt-1 text-xs text-zinc-400 dark:text-zinc-500">
-          生成时间：{report.generated_at}
+          Generated at: {report.generated_at}
         </p>
       </header>
 
@@ -141,7 +142,7 @@ export function ReportView({
 
       {report.data_gaps.length > 0 && (
         <div className="rounded-xl border border-zinc-200 p-5 dark:border-zinc-800">
-          <h3 className="mb-2 text-base font-semibold">数据缺口</h3>
+          <h3 className="mb-2 text-base font-semibold">Data Gaps</h3>
           <ul className="list-inside list-disc text-sm text-zinc-600 dark:text-zinc-300">
             {report.data_gaps.map((gap) => (
               <li key={gap}>{gap}</li>

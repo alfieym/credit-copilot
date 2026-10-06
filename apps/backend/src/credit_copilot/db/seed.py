@@ -1,6 +1,6 @@
-"""把 data/seed/*.csv 灌入 Postgres（需先 `docker compose up -d postgres`）。
+"""Load ``data/seed/*.csv`` into Postgres (requires ``docker compose up -d postgres``).
 
-运行：python -m credit_copilot.db.seed   （或 `make seed`，会自动先 `make data`）
+Run: ``python -m credit_copilot.db.seed``  (or ``make seed``, which runs ``make data`` first)
 """
 from __future__ import annotations
 
@@ -13,14 +13,14 @@ from credit_copilot.config import get_settings
 SEED_DIR = Path(__file__).resolve().parents[3] / "data" / "seed"
 SCHEMA_PATH = Path(__file__).resolve().parent / "schema.sql"
 
-# 表 -> (CSV 文件, 列顺序)。列顺序需与 schema.sql 一致。
+# table -> (CSV file, column order). Column order must match schema.sql.
 TABLES: dict[str, tuple[str, list[str]]] = {
     "dim_borrowing_group": ("dim_borrowing_group.csv",
-        ["group_id", "group_name", "parent_entity_id", "country", "industry",
-         "consolidated_exposure_limit", "risk_consolidation", "status"]),
+        ["group_id", "group_name_cn", "group_name_en", "parent_entity_id", "country",
+         "industry", "consolidated_exposure_limit", "risk_consolidation", "status"]),
     "dim_borrower": ("dim_borrower.csv",
-        ["borrower_id", "group_id", "borrower_name", "country", "industry",
-         "legal_type", "internal_rating", "status"]),
+        ["borrower_id", "group_id", "borrower_name_cn", "borrower_name_en", "country",
+         "industry", "legal_type", "internal_rating", "status"]),
     "dim_main_facility": ("dim_main_facility.csv",
         ["main_facility_id", "borrower_id", "facility_name", "facility_type",
          "currency", "committed_amount", "maturity_date", "purpose", "status"]),
@@ -41,7 +41,7 @@ TABLES: dict[str, tuple[str, list[str]]] = {
          "utilized_amount", "undrawn_amount"]),
 }
 
-# 清空顺序：先子后父，避免外键约束冲突
+# Truncate order: children first, then parents, to avoid FK violations.
 TRUNCATE_ORDER = [
     "fact_utilization", "dim_involved_party", "fact_rating", "map_carm_wren",
     "dim_sub_facility", "dim_main_facility", "dim_borrower", "dim_borrowing_group",
@@ -50,23 +50,23 @@ TRUNCATE_ORDER = [
 
 def main() -> None:
     cfg = get_settings()
-    print(f"连接 Postgres: {cfg.postgres_host}:{cfg.postgres_port}/{cfg.postgres_db}")
+    print(f"Connecting to Postgres: {cfg.postgres_host}:{cfg.postgres_port}/{cfg.postgres_db}")
     with psycopg.connect(cfg.postgres_dsn) as conn, conn.cursor() as cur:
         cur.execute(SCHEMA_PATH.read_text(encoding="utf-8"))
         cur.execute("TRUNCATE " + ", ".join(TRUNCATE_ORDER) + " CASCADE")
         for table, (csv_file, columns) in TABLES.items():
             path = SEED_DIR / csv_file
             if not path.exists():
-                raise FileNotFoundError(f"缺少 {path}，请先运行 `make data` 生成")
+                raise FileNotFoundError(f"Missing {path}; run `make data` first")
             with path.open("r", encoding="utf-8") as f:
                 with cur.copy(
                     f"COPY {table} ({', '.join(columns)}) FROM STDIN "
                     "WITH (FORMAT CSV, HEADER true)"
                 ) as copy:
                     copy.write(f.read())
-            print(f"  ✓ {table}: 已加载 {path.name}")
+            print(f"  ✓ {table}: loaded {path.name}")
         conn.commit()
-    print("灌库完成。")
+    print("Seeding complete.")
 
 
 if __name__ == "__main__":

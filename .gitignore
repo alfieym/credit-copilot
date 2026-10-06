@@ -25,6 +25,7 @@ next-env.d.ts
 
 # 生成的数据（可复现，用 `make data` 重新生成）
 **/data/seed/*.csv
+**/data/reports/*.json
 
 # 系统
 .DS_Store

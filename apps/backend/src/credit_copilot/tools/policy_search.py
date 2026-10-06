@@ -1,7 +1,8 @@
-"""政策文档检索（RAG-lite）：分块 + BM25 关键词打分。
+"""Policy-document search (RAG-lite): chunking + BM25 keyword scoring.
 
-「工具调用」的另一半：政策约束走检索而非 LLM 记忆。当前为纯离线 BM25
-（无需 embedding key，符合降级原则）；阶段1 可在此之上叠加 BGE-M3 向量初筛 + 重排。
+The other half of tool-calling: policy constraints are retrieved rather than held in
+LLM memory. Currently a pure offline BM25 (no embedding key needed, consistent with
+the degradation principle); phase 1 can layer a BGE-M3 vector pre-filter + rerank on top.
 """
 from __future__ import annotations
 
@@ -15,15 +16,14 @@ from credit_copilot.tools.base import ToolResult
 
 DOCS_DIR = Path(__file__).resolve().parents[3] / "docs" / "policy"
 
-_CJK_RE = re.compile(r"[一-鿿]+")
 _WORD_RE = re.compile(r"[A-Za-z0-9_]+")
 
 
 @dataclass
 class Chunk:
-    """一个政策 chunk：可被引用（citation）。"""
+    """A policy chunk that can be cited."""
 
-    id: str          # 形如 "评级准入政策#评级准入线"
+    id: str          # e.g. "rating-access-policy#Rating Threshold"
     doc_title: str
     text: str
 
@@ -32,25 +32,20 @@ class Chunk:
 
 
 def _tokenize(text: str) -> list[str]:
-    """简单分词：ASCII 词 + CJK 二元组（覆盖中文短语匹配）。"""
-    tokens = _WORD_RE.findall(text.lower())
-    for run in _CJK_RE.findall(text):
-        if len(run) == 1:
-            tokens.append(run)
-        else:
-            tokens += [run[i : i + 2] for i in range(len(run) - 1)]
-    return tokens
+    """Simple English word tokenization (lowercased)."""
+    return _WORD_RE.findall(text.lower())
 
 
 def load_chunks(docs_dir: Path = DOCS_DIR) -> list[Chunk]:
-    """把 ``docs/policy/*.md`` 按 ``## `` 标题分块。"""
+    """Split ``docs/policy/*.md`` into chunks on ``## `` headings."""
     chunks: list[Chunk] = []
     for path in sorted(docs_dir.glob("*.md")):
         title = path.stem
-        # 去掉文件名里的序号前缀（"01-行业准入政策" -> "行业准入政策"）
+        # strip the numeric filename prefix
+        # ("01-industry-access-policy" -> "industry-access-policy")
         title = re.sub(r"^\d+-", "", title)
         text = path.read_text(encoding="utf-8")
-        # 去掉开头的 h1 标题行，再按 "## " 标题切块
+        # drop the leading h1 title line, then split on "## " headings
         text = re.sub(r"(?m)^#\s+.*\n?", "", text)
         for part in re.split(r"(?m)^##\s+", text):
             part = part.strip()
@@ -67,7 +62,7 @@ def load_chunks(docs_dir: Path = DOCS_DIR) -> list[Chunk]:
 
 @lru_cache(maxsize=1)
 def _index() -> tuple[list[Chunk], dict[str, int], dict[str, list[str]], float]:
-    """构建轻量索引：chunks、df、每个 chunk 的 token 计数、平均长度。"""
+    """Build a lightweight index: chunks, df, per-chunk token counts, and average length."""
     chunks = load_chunks()
     df: dict[str, int] = {}
     chunk_tokens: dict[str, list[str]] = {}
@@ -103,9 +98,10 @@ def _bm25(query: str, top_k: int) -> list[tuple[Chunk, float]]:
 
 
 def search_policy_docs(query: str, *, top_k: int = 5) -> ToolResult:
-    """检索政策 chunk，返回 :class:`ToolResult`（内部异常统一降级）。"""
+    """Search policy chunks, returning a :class:`ToolResult`
+    (internal errors degrade gracefully)."""
     try:
         hits = _bm25(query, top_k)
         return ToolResult.success([(c, s) for c, s in hits])
-    except Exception as e:  # noqa: BLE001 —— 检索失败不击穿报告，降级为空
-        return ToolResult.failure(f"政策检索失败: {e}", fallback=True)
+    except Exception as e:  # noqa: BLE001 — retrieval failure must not break the report; degrade to empty
+        return ToolResult.failure(f"Policy search failed: {e}", fallback=True)

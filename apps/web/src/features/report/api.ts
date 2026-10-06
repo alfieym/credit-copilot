@@ -1,4 +1,4 @@
-/** 类型化 API client。开发期直连 FastAPI，生产由网关同域反代。 */
+/** Typed API client. In dev it hits FastAPI directly; in production a gateway reverse-proxies it same-origin. */
 import type { CreditMemo } from "./types";
 
 export const API_BASE =
@@ -11,7 +11,7 @@ export async function fetchReport(query: string): Promise<CreditMemo> {
     body: JSON.stringify({ query }),
   });
   if (!res.ok) {
-    throw new Error(`请求失败：HTTP ${res.status}`);
+    throw new Error(`Request failed: HTTP ${res.status}`);
   }
   return (await res.json()) as CreditMemo;
 }
