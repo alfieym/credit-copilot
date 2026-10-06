@@ -28,16 +28,29 @@ class Chunk:
     text: str
 
     def cite(self) -> str:
+        """Render this chunk as an inline citation (e.g. ``[p:policy#Heading]``).
+
+        Implementation: ``f"[p:{self.id}]"`` — ``id`` is ``{title}#{heading}``.
+        """
         return f"[p:{self.id}]"
 
 
 def _tokenize(text: str) -> list[str]:
-    """Simple English word tokenization (lowercased)."""
+    """Tokenize text into lowercased English word tokens.
+
+    Implementation: ``_WORD_RE.findall(text.lower())`` — only ``[A-Za-z0-9_]+`` runs are
+    kept, so punctuation and CJK are dropped (English-only BM25).
+    """
     return _WORD_RE.findall(text.lower())
 
 
 def load_chunks(docs_dir: Path = DOCS_DIR) -> list[Chunk]:
-    """Split ``docs/policy/*.md`` into chunks on ``## `` headings."""
+    """Load and split ``docs/policy/*.md`` into citable :class:`Chunk` objects.
+
+    Implementation: for each ``*.md`` file, strip the numeric filename prefix
+    (``01-…`` → ``…``), drop the leading ``# `` title line, split the body on ``## ``
+    headings, and build ``Chunk(id=f"{title}#{heading}")`` per non-empty body.
+    """
     chunks: list[Chunk] = []
     for path in sorted(docs_dir.glob("*.md")):
         title = path.stem
@@ -62,7 +75,12 @@ def load_chunks(docs_dir: Path = DOCS_DIR) -> list[Chunk]:
 
 @lru_cache(maxsize=1)
 def _index() -> tuple[list[Chunk], dict[str, int], dict[str, list[str]], float]:
-    """Build a lightweight index: chunks, df, per-chunk token counts, and average length."""
+    """Build (and cache) the BM25 index.
+
+    Implementation: tokenize every chunk once, then compute document frequency (``df``),
+    per-chunk token lists (``chunk_tokens``), and the average chunk length. Cached via
+    ``@lru_cache`` so the corpus is read only once per process.
+    """
     chunks = load_chunks()
     df: dict[str, int] = {}
     chunk_tokens: dict[str, list[str]] = {}
@@ -76,6 +94,12 @@ def _index() -> tuple[list[Chunk], dict[str, int], dict[str, list[str]], float]:
 
 
 def _bm25(query: str, top_k: int) -> list[tuple[Chunk, float]]:
+    """Rank chunks with the BM25 scoring function and return the top-k.
+
+    Implementation: for each chunk compute ``Σ idf * (tf*(k1+1)) / (tf + k1*(1 - b +
+    b*len/avg_len))`` over the query terms (k1=1.5, b=0.75), keep non-zero scores, sort
+    descending, and slice to ``top_k``.
+    """
     chunks, df, chunk_tokens, avg_len = _index()
     n = len(chunks)
     qtoks = _tokenize(query)
@@ -98,8 +122,12 @@ def _bm25(query: str, top_k: int) -> list[tuple[Chunk, float]]:
 
 
 def search_policy_docs(query: str, *, top_k: int = 5) -> ToolResult:
-    """Search policy chunks, returning a :class:`ToolResult`
-    (internal errors degrade gracefully)."""
+    """Search the policy corpus and return the hits as a :class:`ToolResult`.
+
+    Implementation: delegates to ``_bm25`` and wraps ``(Chunk, score)`` pairs in a
+    successful result; any internal error is caught and returned as a
+    ``fallback_applied`` failure so a retrieval failure never breaks the report.
+    """
     try:
         hits = _bm25(query, top_k)
         return ToolResult.success([(c, s) for c, s in hits])

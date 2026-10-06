@@ -36,61 +36,92 @@ from credit_copilot.tools.policy_search import search_policy_docs
 
 
 def _wrap(r: ToolResult) -> dict:
+    """Convert a ToolResult into the JSON-friendly dict the SDK returns to the LLM.
+
+    Implementation: ``{"ok": r.ok, "data": r.data, "error": r.error}``.
+    """
     return {"ok": r.ok, "data": r.data, "error": r.error}
 
 
 # --- ② Tool calling: thin @function_tool wrappers (JSON-friendly entry points) ---
 @function_tool
 def search_borrowers_tool(name: str) -> dict:
-    """Fuzzy-match borrowers by name; returns the list of matches."""
+    """Fuzzy-match borrowers by name — delegates to ``datawarehouse.search_borrowers``.
+
+    Returns the wrapped ToolResult as a JSON dict.
+    """
     return _wrap(search_borrowers(name))
 
 
 @function_tool
 def search_groups_tool(name: str) -> dict:
-    """Fuzzy-match borrowing groups by name; returns the list of matches."""
+    """Fuzzy-match borrowing groups by name — delegates to ``datawarehouse.search_groups``.
+
+    Returns the wrapped ToolResult as a JSON dict.
+    """
     return _wrap(search_groups(name))
 
 
 @function_tool
 def get_borrower_overview_tool(borrower_id: int) -> dict:
-    """Borrower + its group overview."""
+    """Borrower + its group overview — delegates to ``datawarehouse.get_borrower_overview``.
+
+    Returns the wrapped ToolResult as a JSON dict.
+    """
     return _wrap(get_borrower_overview(borrower_id))
 
 
 @function_tool
 def get_group_overview_tool(group_id: int) -> dict:
-    """Group overview."""
+    """Group overview — delegates to ``datawarehouse.get_group_overview``.
+
+    Returns the wrapped ToolResult as a JSON dict.
+    """
     return _wrap(get_group_overview(group_id))
 
 
 @function_tool
 def get_ratings_tool(entity_type: str, entity_id: int) -> dict:
-    """Ratings (including history; time dimension descending: current first)."""
+    """Ratings (history incl., newest first) — delegates to ``datawarehouse.get_ratings``.
+
+    Returns the wrapped ToolResult as a JSON dict.
+    """
     return _wrap(get_ratings(entity_type, entity_id))
 
 
 @function_tool
 def get_facilities_tool(borrower_id: int) -> dict:
-    """Main facilities + sub facilities."""
+    """Main + sub facilities — delegates to ``datawarehouse.get_facilities``.
+
+    Returns the wrapped ToolResult as a JSON dict.
+    """
     return _wrap(get_facilities(borrower_id))
 
 
 @function_tool
 def get_exposure_tool(group_id: int) -> dict:
-    """Group consolidated exposure vs. limit (latest as-of date)."""
+    """Group exposure vs. limit — delegates to ``datawarehouse.get_exposure``.
+
+    Returns the wrapped ToolResult as a JSON dict.
+    """
     return _wrap(get_exposure(group_id))
 
 
 @function_tool
 def get_involved_parties_tool(borrower_id: int) -> dict:
-    """Related parties and guarantee structure."""
+    """Related parties & guarantees — delegates to ``datawarehouse.get_involved_parties``.
+
+    Returns the wrapped ToolResult as a JSON dict.
+    """
     return _wrap(get_involved_parties(borrower_id))
 
 
 @function_tool
 def search_policy_docs_tool(query: str, top_k: int = 5) -> dict:
-    """Search policy-document chunks; returns the hit list."""
+    """Search policy-document chunks — delegates to ``policy_search.search_policy_docs``.
+
+    Returns the wrapped ToolResult as a JSON dict.
+    """
     return _wrap(search_policy_docs(query, top_k=top_k))
 
 
@@ -108,8 +139,12 @@ MEMO_TOOLS: list[Tool] = [
 
 
 def build_model(settings: Settings | None = None) -> OpenAIChatCompletionsModel:
-    """Build an OpenAI-compatible model by provider
-    (openai -> openai_*, deepseek/qwen/zhipu -> llm_*)."""
+    """Build the Agents SDK model object for the configured provider.
+
+    Implementation: OpenAI maps to ``openai_*`` config; other providers map to
+    ``llm_*`` and disable tracing (non-OpenAI endpoints must not push traces). Returns
+    an ``OpenAIChatCompletionsModel`` backed by an ``AsyncOpenAI`` client.
+    """
     cfg = settings or get_settings()
     if cfg.llm_provider == "openai":
         base_url = cfg.openai_base_url
@@ -127,7 +162,12 @@ def build_model(settings: Settings | None = None) -> OpenAIChatCompletionsModel:
 
 
 def build_composer_agent(settings: Settings | None = None) -> Agent:
-    """Composer agent: summarizes verified facts into "Risk Points & Conclusion"."""
+    """Build the Agents SDK drafting agent for chapter 7.
+
+    Implementation: an ``Agent`` with a senior-credit-analyst system prompt (≤150 words,
+    no fabrication), the ``MEMO_TOOLS`` tool set, and ``conclusion_output_guardrail`` as
+    its output guardrail, using ``build_model``.
+    """
     return Agent(
         name="credit_memo_conclusion",
         instructions=(
@@ -150,10 +190,12 @@ _SYSTEM = (
 
 
 def synthesize_conclusion(entity: Entity, flags: list[Flag]) -> tuple[str, list[str], str]:
-    """Section 7 conclusion: OpenAI-compatible goes through SDK Agent+Runner,
-    Bedrock through the direct client; failure degrades to a rule summary.
+    """Produce the chapter-7 conclusion, degrading to a rule summary on failure.
 
-    Returns (conclusion, citations, flag_txt).
+    Implementation: formats the flags into bullet lines; with no API key it returns the
+    fallback directly. Otherwise it calls the LLM — Bedrock via ``LLMClient.complete``,
+    other providers via ``Runner.run_sync`` on the composer agent — and returns
+    ``(text, ["[llm]"], flag_txt)``; any exception falls back to the rule summary.
     """
     detail_lines = [f"- [{f.level}] {f.rule}: {f.detail}" for f in flags]
     flag_txt = "\n".join(detail_lines) or "- No rules triggered"

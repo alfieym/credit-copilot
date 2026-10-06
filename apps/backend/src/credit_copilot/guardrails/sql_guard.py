@@ -42,7 +42,12 @@ class SQLGuardError(FatalError):
 
 
 def validate_sql(sql: str) -> None:
-    """Validate a read-only SQL statement; raise :class:`SQLGuardError` on failure."""
+    """Validate a read-only SQL statement; raise :class:`SQLGuardError` on failure.
+
+    Implementation (four checks): (1) non-empty; (2) single statement (no ``;`` after
+    stripping a trailing one); (3) first keyword is ``SELECT``/``WITH``; (4) no forbidden
+    write/DDL keyword; then every ``FROM``/``JOIN`` table must be in ``ALLOWED_TABLES``.
+    """
     s = sql.strip()
     if not s:
         raise SQLGuardError("Empty SQL")
@@ -69,7 +74,11 @@ def validate_sql(sql: str) -> None:
 
 
 def cap_rows(rows: list) -> list:
-    """Row cap: raise :class:`SQLGuardError` when exceeded, to avoid pulling the whole DB back."""
+    """Enforce the row cap; raise :class:`SQLGuardError` when exceeded.
+
+    Implementation: if ``len(rows) > MAX_ROWS`` raise (so the tool degrades instead of
+    materializing an unbounded result set); otherwise return the rows unchanged.
+    """
     if len(rows) > MAX_ROWS:
         raise SQLGuardError(f"Returned {len(rows)} rows, over the limit of {MAX_ROWS}")
     return rows

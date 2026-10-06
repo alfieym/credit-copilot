@@ -22,6 +22,11 @@ MAX_COMPOSE_ATTEMPTS = 2
 
 
 def _error_memo(query: str, message: str, errs: list[str]) -> CreditMemo:
+    """Build a "Generation Failed" memo so the API always returns a valid structure.
+
+    Implementation: ``entity_name`` = the extracted hint (or the raw query); a single
+    "Generation Failed" section carries ``message``, and ``errs`` become ``data_gaps``.
+    """
     return CreditMemo(
         entity_name=extract_entity_hint(query) or query,
         sections=[Section(title="Generation Failed", content=message)],
@@ -31,8 +36,13 @@ def _error_memo(query: str, message: str, errs: list[str]) -> CreditMemo:
 
 
 def run_report(query: str) -> CreditMemo:
-    """Generate a report synchronously, always returning a structured CreditMemo
-    (errors yield an error-bearing memo)."""
+    """Generate a credit memo synchronously (the full pipeline, no streaming).
+
+    Implementation: resolve → collect → compliance → compose → validate; if validation
+    fails, re-compose up to ``MAX_COMPOSE_ATTEMPTS`` times (bounded loop-back), then
+    append a "Validation Failed" section with the errors. Resolution failure short-
+    circuits to ``_error_memo``.
+    """
     try:
         entity = resolve_entity(query)
     except EntityResolutionError as e:
@@ -53,7 +63,12 @@ def run_report(query: str) -> CreditMemo:
 
 
 def run_report_stream(query: str) -> Iterator[dict]:
-    """Streaming: emit per-stage progress events (for API SSE node-by-node push)."""
+    """Run the pipeline and emit per-stage progress events as a generator.
+
+    Implementation: yields ``running``/``done``/``error`` events for each stage
+    (resolve → collect → compliance → compose) so the API can stream them over SSE; a
+    resolution error yields an ``error`` event with the candidate list and stops.
+    """
     yield {"stage": "resolve_entity", "status": "running"}
     try:
         entity = resolve_entity(query)

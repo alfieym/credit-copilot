@@ -127,7 +127,11 @@ BANKS = ["Bank of China", "HSBC", "Citi", "Standard Chartered",
 
 
 def rnd_amount(lo_m: float, hi_m: float) -> float:
-    """Return an actual amount (float) in the millions range; formatting happens at CSV write."""
+    """Return a deterministic random amount in the given millions range.
+
+    Implementation: ``round(uniform(lo_m, hi_m) * 1_000_000, 2)`` — stored as a full
+    value; the millions formatting happens at CSV write time.
+    """
     return round(rng.uniform(lo_m, hi_m) * 1_000_000, 2)
 
 
@@ -135,6 +139,12 @@ def rnd_amount(lo_m: float, hi_m: float) -> float:
 # Per-table generation
 # --------------------------------------------------------------------------- #
 def gen_groups() -> list[dict]:
+    """Generate the 15 borrowing-group rows from the ``GROUPS`` pool.
+
+    Implementation: enumerates ``GROUPS``, giving each a deterministic ``group_id``, a
+    random consolidated exposure limit (500–5000m), a risk-consolidation mode, and
+    bilingual names.
+    """
     rows = []
     for i, g in enumerate(GROUPS, start=1):
         rows.append({
@@ -152,6 +162,12 @@ def gen_groups() -> list[dict]:
 
 
 def gen_borrowers(groups: list[dict]) -> list[dict]:
+    """Generate 2–6 borrowers per group with matched bilingual names.
+
+    Implementation: for each group, sample a business suffix and legal form, then build
+    ``name_cn = core_cn + suffix_cn + legal_cn`` and
+    ``name_en = core_en + suffix_en + legal_en``; sequential ids start at 1001.
+    """
     rows = []
     borrower_id = 1001
     for group_id, g in enumerate(groups, start=1):
@@ -176,6 +192,11 @@ def gen_borrowers(groups: list[dict]) -> list[dict]:
 
 
 def gen_main_facilities(borrowers: list[dict]) -> list[dict]:
+    """Generate 1–3 main credit facilities per borrower.
+
+    Implementation: each facility gets a type, currency, committed amount (10–800m), a
+    maturity 1–7 years out, and a purpose; ids start at 2001.
+    """
     rows = []
     fid = 2001
     for b in borrowers:
@@ -198,6 +219,12 @@ def gen_main_facilities(borrowers: list[dict]) -> list[dict]:
 
 
 def gen_sub_facilities(mains: list[dict]) -> list[dict]:
+    """Generate 0–3 sub-facilities per main facility.
+
+    Implementation: each sub draws a type (LC / Guarantee / Cash / Term / Aval) and a
+    limit of 10–50% of the main facility's committed amount, with utilization 10–90% of
+    that limit; ids start at 3001.
+    """
     rows = []
     sid = 3001
     for m in mains:
@@ -220,6 +247,12 @@ def gen_sub_facilities(mains: list[dict]) -> list[dict]:
 
 def _rating(rid: int, etype: str, eid: int, agency: str, grade: str | None = None,
             valid_from: date | None = None, valid_to: date | None = None) -> dict:
+    """Build one rating row.
+
+    Implementation: uses the explicit ``grade``/``valid_from``/``valid_to`` when given,
+    otherwise samples a grade and a random date within the past ~400 days; outlook and
+    methodology are derived from the agency.
+    """
     g = grade or rng.choices(GRADES, weights=GRADE_WEIGHTS)[0]
     rd = valid_from or (TODAY - timedelta(days=rng.randint(30, 400)))
     return {
@@ -237,6 +270,13 @@ def _rating(rid: int, etype: str, eid: int, agency: str, grade: str | None = Non
 
 
 def gen_ratings(groups: list[dict], borrowers: list[dict], mains: list[dict]) -> list[dict]:
+    """Generate ratings for groups, borrowers, facilities, plus historical (closed) rows.
+
+    Implementation: one internal rating per group and borrower (borrower grade from
+    ``internal_rating``), an optional S&P/Moody's rating (40% chance), an optional
+    facility rating (50% chance), then closed historical ratings for the first 15
+    borrowers to populate the time dimension.
+    """
     rows = []
     rid = 1
     for g in groups:
@@ -264,6 +304,12 @@ def gen_ratings(groups: list[dict], borrowers: list[dict], mains: list[dict]) ->
 
 def gen_involved_parties(mains: list[dict], borrower_by_id: dict,
                          group_en_by_borrower: dict) -> list[dict]:
+    """Generate involved parties per main facility.
+
+    Implementation: every facility gets a ``borrower`` row, plus 1–3 sampled roles — a
+    guarantor (the borrower's group, 100% ownership, internal) or an agent bank /
+    arranger / security agent (a sampled bank, external).
+    """
     rows = []
     pid = 1
     for m in mains:
@@ -304,6 +350,12 @@ def gen_involved_parties(mains: list[dict], borrower_by_id: dict,
 
 
 def gen_carm_wren(groups: list[dict], borrowers: list[dict], mains: list[dict]) -> list[dict]:
+    """Generate the CARM↔WREN cross-system mapping rows.
+
+    Implementation: for each group/borrower/facility, sample a status with weights
+    matched 85% / partial 8% / unmatched 7%; matched rows get high confidence and a
+    WREN id, partial rows a suffixed id and lower confidence, unmatched rows a NULL id.
+    """
     rows = []
     mid = 1
     entities = ([(("group", g["group_id"])) for g in groups]
@@ -336,6 +388,12 @@ def gen_carm_wren(groups: list[dict], borrowers: list[dict], mains: list[dict]) 
 
 
 def gen_utilization(mains: list[dict]) -> list[dict]:
+    """Generate 12 monthly utilization points per facility.
+
+    Implementation: starts from a base utilization (30–85% of committed) and drifts it
+    ±3% per month, clamped to [0, committed], writing one ``fact_utilization`` row per
+    month ending at ``TODAY``.
+    """
     rows = []
     uid = 1
     for m in mains:
@@ -361,6 +419,7 @@ def gen_utilization(mains: list[dict]) -> list[dict]:
 # CSV writing
 # --------------------------------------------------------------------------- #
 def _fmt(v):
+    """Format one CSV cell: None -> '', date -> ISO, float -> 2 decimals."""
     if v is None:
         return ""
     if isinstance(v, date):
@@ -371,6 +430,12 @@ def _fmt(v):
 
 
 def _write_csv(name: str, fieldnames: list[str], rows: list[dict]) -> None:
+    """Write one table's rows to ``data/seed/<name>.csv``.
+
+    Implementation: creates the directory, opens the file, writes a header via
+    ``csv.DictWriter`` (extra keys ignored), formats each cell with ``_fmt``, and prints
+    a row-count line.
+    """
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     path = OUT_DIR / f"{name}.csv"
     with path.open("w", newline="", encoding="utf-8") as f:
@@ -382,6 +447,12 @@ def _write_csv(name: str, fieldnames: list[str], rows: list[dict]) -> None:
 
 
 def main() -> None:
+    """Generate the full synthetic dataset and write the 8 CSVs.
+
+    Implementation: generates groups → borrowers → main/sub facilities → ratings →
+    involved parties → cross-system mapping → utilization (each dependent on the prior
+    output), then writes each table to ``data/seed/`` in that order.
+    """
     print(f"Generating synthetic dataset (seed={SEED})...")
     groups = gen_groups()
     borrowers = gen_borrowers(GROUPS)

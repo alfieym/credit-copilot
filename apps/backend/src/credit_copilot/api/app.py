@@ -31,13 +31,20 @@ class ReportRequest(BaseModel):
 
 @app.get("/health")
 def health() -> dict:
+    """Liveness probe (``GET /health``).
+
+    Implementation: returns a fixed ``{"status": "ok"}``.
+    """
     return {"status": "ok"}
 
 
 @app.post("/report")
 def report(req: ReportRequest) -> dict:
-    """Generate a credit memo synchronously and return structured JSON;
-    when save=True also persist to data/reports/."""
+    """Generate a credit memo synchronously and return structured JSON.
+
+    Implementation: calls ``orchestrator.run_report``, serializes via ``model_dump()``,
+    and — when ``req.save`` is true — also persists the memo and returns the saved path.
+    """
     memo = run_report(req.query)
     data = memo.model_dump()
     if req.save:
@@ -46,11 +53,17 @@ def report(req: ReportRequest) -> dict:
 
 
 def _sse(event: str, data: dict) -> str:
+    """Serialize one Server-Sent Event frame (``data: {event, ...}\\n\\n``)."""
     return f"data: {json.dumps({'event': event, **data}, ensure_ascii=False)}\n\n"
 
 
 async def _stream(query: str) -> AsyncGenerator[str, None]:
-    """Streaming progress: start -> per-stage -> done/error."""
+    """Async generator streaming the report as SSE frames.
+
+    Implementation: emits a ``start`` event, then maps each pipeline stage to a ``node``
+    event (or ``error`` with candidates on resolution failure); a completed report is
+    emitted as ``done`` with the full memo.
+    """
     yield _sse("start", {"query": query})
     try:
         for stage in run_report_stream(query):
@@ -68,5 +81,9 @@ async def _stream(query: str) -> AsyncGenerator[str, None]:
 
 @app.post("/report/stream")
 def report_stream(req: ReportRequest) -> StreamingResponse:
-    """SSE streaming credit-memo generation."""
+    """Streaming credit-memo generation (``POST /report/stream``).
+
+    Implementation: wraps ``_stream`` in a ``StreamingResponse`` with
+    ``media_type="text/event-stream"``.
+    """
     return StreamingResponse(_stream(req.query), media_type="text/event-stream")

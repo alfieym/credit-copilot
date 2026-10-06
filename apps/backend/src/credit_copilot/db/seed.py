@@ -49,6 +49,12 @@ TRUNCATE_ORDER = [
 
 
 def main() -> None:
+    """Create the schema and load all CSVs into Postgres.
+
+    Implementation: connects, executes ``schema.sql`` (``CREATE TABLE IF NOT EXISTS``),
+    truncates tables child-first (``TRUNCATE_ORDER``), then ``COPY``s each CSV into its
+    table with the column order declared in ``TABLES``, committing once at the end.
+    """
     cfg = get_settings()
     print(f"Connecting to Postgres: {cfg.postgres_host}:{cfg.postgres_port}/{cfg.postgres_db}")
     with psycopg.connect(cfg.postgres_dsn) as conn, conn.cursor() as cur:

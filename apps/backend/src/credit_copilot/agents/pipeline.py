@@ -38,7 +38,12 @@ from credit_copilot.tools.policy_search import search_policy_docs
 
 
 def resolve_entity(query: str) -> Entity:
-    """Entity resolution (result-validation gate 2): 0 or >1 matches raise EntityResolutionError."""
+    """Resolve the query to exactly one :class:`Entity` (result-validation gate 2).
+
+    Implementation: ``extract_entity_hint``, then fuzzy-search both borrowers and
+    groups; 0 hits → error, >1 hit → ambiguous error (carrying the candidates), exactly
+    1 → that entity. Raising mirrors an input-guardrail tripwire.
+    """
     hint = extract_entity_hint(query)
     if not hint:
         raise EntityResolutionError("Could not identify an entity name in the query")
@@ -70,8 +75,13 @@ def resolve_entity(query: str) -> Entity:
 
 
 def collect_facts(entity: Entity) -> dict[str, ToolResult]:
-    """Fan out (in parallel) to collect per-section facts (DB + RAG);
-    a failed section degrades without breaking the report."""
+    """Collect per-section facts (DB + RAG) in parallel, degrading instead of crashing.
+
+    Implementation: fetch the overview first to derive ``group_id``/industry/name; then
+    run ratings / facilities / exposure / parties / policy (plus the group overview for
+    borrowers) on a 6-worker ``ThreadPoolExecutor`` with a 30s timeout; any error or
+    timeout becomes a ``ToolResult.failure``.
+    """
     facts: dict[str, ToolResult] = {}
     overview = (get_borrower_overview(entity.id) if entity.kind == "borrower"
                 else get_group_overview(entity.id))
@@ -106,7 +116,12 @@ def collect_facts(entity: Entity) -> dict[str, ToolResult]:
 
 
 def build_compliance_flags(entity: Entity, facts: dict[str, ToolResult]) -> list[Flag]:
-    """Deterministic compliance rules (the rule layer of result validation)."""
+    """Apply the deterministic compliance rules and return :class:`Flag` objects.
+
+    Implementation (three rule blocks): (1) ``industry == "Real Estate"`` → access
+    restriction; (2) current internal rating ``≤ BB-`` → error, negative outlook →
+    warning; (3) consolidated exposure ratio ``> 100%`` → error, ``≥ 80%`` → warning.
+    """
     flags: list[Flag] = []
     overview = facts.get("overview")
     row = overview.data[0] if overview and overview.ok and overview.data else {}
@@ -156,6 +171,7 @@ def build_compliance_flags(entity: Entity, facts: dict[str, ToolResult]) -> list
 
 
 def _money(v) -> str:
+    """Format an amount in millions (e.g. 2_500_000 -> "2.50 million"); pass through non-numeric."""
     try:
         return f"{float(v) / 1_000_000:,.2f} million"
     except (TypeError, ValueError):
@@ -170,12 +186,18 @@ def _display_name(name_cn, name_en) -> str:
 
 
 def _tr(facts: dict[str, ToolResult], key: str) -> ToolResult:
+    """Fetch a collected fact by key, yielding a 'Not collected' failure when absent."""
     return facts.get(key, ToolResult.failure("Not collected"))
 
 
 def compose_report(entity: Entity, facts: dict[str, ToolResult], flags: list[Flag]) -> CreditMemo:
-    """Draft the report: sections 1-6 assembled deterministically,
-    section 7 (conclusion) via LLM (degrades to a rule summary)."""
+    """Assemble the :class:`CreditMemo`: chapters 1–6 deterministic, chapter 7 via LLM.
+
+    Implementation: walks the collected facts chapter by chapter, rendering rows into
+    bullet lists with ``[t:table#id]`` citations; a missing fact emits "No data" and is
+    recorded as a data-gap. Chapter 6 renders the compliance flags, chapter 7 calls
+    ``synthesize_conclusion``, and a financial-data gap is always declared.
+    """
     gaps: list[str] = []
     sections: list[Section] = []
 
@@ -304,7 +326,11 @@ def compose_report(entity: Entity, facts: dict[str, ToolResult], flags: list[Fla
 
 
 def validate_report(report: CreditMemo) -> list[str]:
-    """Result validation (section completeness + citation coverage)."""
+    """Run result validation and return a list of error strings (empty = valid).
+
+    Implementation: checks that all 7 ``SECTION_TITLES`` are present, and that citation
+    coverage (``_citation_coverage``) meets the 0.9 threshold.
+    """
     errs: list[str] = []
     have = {s.title for s in report.sections}
     missing = [t for t in SECTION_TITLES if t not in have]
@@ -317,7 +343,11 @@ def validate_report(report: CreditMemo) -> list[str]:
 
 
 def _citation_coverage(report: CreditMemo) -> float:
-    """All sections except "Risk Points & Conclusion" must carry citations."""
+    """Compute the fraction of citable sections that carry at least one citation.
+
+    Implementation: every section except "Risk Points & Conclusion" must have a non-empty
+    ``citations`` list; returns 0.0 when there are no citable sections.
+    """
     must = [s for s in report.sections if s.title != SECTION_TITLES[6]]
     if not must:
         return 0.0

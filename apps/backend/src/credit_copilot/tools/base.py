@@ -48,10 +48,19 @@ class ToolResult:
 
     @classmethod
     def success(cls, data: Any) -> ToolResult:
+        """Build a successful :class:`ToolResult` carrying ``data``.
+
+        Implementation: ``ToolResult(ok=True, data=data)`` with no error and no fallback.
+        """
         return cls(ok=True, data=data)
 
     @classmethod
     def failure(cls, error: str, *, fallback: bool = False) -> ToolResult:
+        """Build a failed :class:`ToolResult`.
+
+        Implementation: ``ToolResult(ok=False, error=error)``; sets ``fallback_applied``
+        so callers can tell a genuine failure from a degraded-but-accepted result.
+        """
         return cls(ok=False, error=error, fallback_applied=fallback)
 
 
@@ -67,6 +76,12 @@ def with_retry(
 
     @functools.wraps(fn)
     def wrapper(*args: Any, **kwargs: Any) -> ToolResult:
+        """Run ``fn`` with bounded retries/backoff and always return a :class:`ToolResult`.
+
+        Implementation: loops ``retries + 1`` times — ``FatalError`` returns a failure
+        immediately, ``TransientError``/``ToolTimeout`` sleep ``backoff * 2**attempt``
+        then retry — and after exhausting retries returns a ``fallback_applied`` failure.
+        """
         last: ToolError | None = None
         for attempt in range(retries + 1):
             try:

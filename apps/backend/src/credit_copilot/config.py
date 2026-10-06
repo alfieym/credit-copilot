@@ -48,6 +48,11 @@ class Settings(BaseSettings):
 
     @property
     def postgres_dsn(self) -> str:
+        """Assemble the Postgres connection URL from the host/port/db/user/password.
+
+        Implementation: ``f"postgresql://{user}:{password}@{host}:{port}/{db}"``,
+        consumed by psycopg in the datawarehouse and seed layers.
+        """
         return (
             f"postgresql://{self.postgres_user}:{self.postgres_password}"
             f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
@@ -56,4 +61,9 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
+    """Return the process-wide :class:`Settings`, cached.
+
+    Implementation: pydantic-settings reads env vars / ``.env`` once; ``@lru_cache``
+    makes later calls return the same instance without re-parsing the environment.
+    """
     return Settings()

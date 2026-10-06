@@ -18,7 +18,12 @@ MAX_CONCLUSION_CHARS = 500
 def conclusion_output_guardrail(
     context: RunContextWrapper[Any], agent: Agent[Any], output: Any
 ) -> GuardrailFunctionOutput:
-    """Conclusion-section check: non-empty and not overlong."""
+    """Output guardrail for the drafting agent's conclusion.
+
+    Implementation: casts output to text, then trips the guardrail (via ``Runner``) if
+    it is empty or longer than ``MAX_CONCLUSION_CHARS`` (500); otherwise returns the
+    length without tripping.
+    """
     text = output if isinstance(output, str) else str(output)
     if not text.strip():
         return GuardrailFunctionOutput(

@@ -15,8 +15,11 @@ from credit_copilot.tools.base import FatalError, ToolTimeout, TransientError
 
 
 def has_llm_key(cfg: Settings) -> bool:
-    """Whether usable LLM credentials exist
-    (Bedrock uses the default AWS credential chain, treated as always available)."""
+    """Whether usable LLM credentials exist for the configured provider.
+
+    Implementation: Bedrock is always true (default AWS credential chain); OpenAI
+    requires ``openai_api_key`` or ``llm_api_key``; other providers need ``llm_api_key``.
+    """
     if cfg.llm_provider == "bedrock":
         return True
     if cfg.llm_provider == "openai":
@@ -29,6 +32,12 @@ class LLMClient:
     Missing key raises FatalError (scenario layer degrades on it)."""
 
     def __init__(self, *, temperature: float = 0.2) -> None:
+        """Initialize the client for the configured provider.
+
+        Implementation: stores settings and temperature; for non-Bedrock providers
+        resolves ``(base_url, model, key)`` and builds an ``OpenAI`` client with a 30s
+        timeout. Bedrock builds no client (its path imports boto3 lazily).
+        """
         self._cfg = get_settings()
         self._temperature = temperature
         self._client: OpenAI | None = None
@@ -38,13 +47,22 @@ class LLMClient:
             self._client = OpenAI(api_key=key or "sk-missing", base_url=base_url, timeout=30.0)
 
     def _openai_compat_target(self) -> tuple[str, str, str]:
+        """Resolve (base_url, model, api_key) for the configured OpenAI-compatible provider.
+
+        Implementation: OpenAI uses ``openai_*`` (falling back to ``llm_api_key``); all
+        other OpenAI-compatible providers (deepseek/qwen/zhipu) use ``llm_*``.
+        """
         cfg = self._cfg
         if cfg.llm_provider == "openai":
             return cfg.openai_base_url, cfg.openai_model, cfg.openai_api_key or cfg.llm_api_key
         return cfg.llm_base_url, cfg.llm_model, cfg.llm_api_key
 
     def complete(self, system: str, user: str) -> str:
-        """Synchronous completion returning text. Classifies exceptions into ToolError subtypes."""
+        """Run one synchronous completion and return the generated text.
+
+        Implementation: checks ``has_llm_key`` (missing → ``FatalError``), then
+        dispatches to ``_complete_bedrock`` or ``_complete_openai`` by provider.
+        """
         cfg = get_settings()
         if not has_llm_key(cfg):
             raise FatalError("No LLM API key configured (LLM_API_KEY / OPENAI_API_KEY)")
@@ -53,6 +71,13 @@ class LLMClient:
         return self._complete_openai(system, user)
 
     def _complete_openai(self, system: str, user: str) -> str:
+        """Call the OpenAI-compatible chat endpoint and map SDK errors to ToolError subtypes.
+
+        Implementation: ``client.chat.completions.create`` with system/user messages and
+        the configured temperature; timeout/rate-limit/connection → transient,
+        auth/bad-request → fatal, 5xx → transient, other status → fatal. Returns the
+        first choice's text.
+        """
         assert self._client is not None  # guaranteed by __init__
         try:
             resp = self._client.chat.completions.create(
@@ -81,6 +106,12 @@ class LLMClient:
         return content or ""
 
     def _complete_bedrock(self, system: str, user: str) -> str:
+        """Call AWS Bedrock's Converse API and return the generated text.
+
+        Implementation: lazily imports boto3 (missing → ``FatalError``), builds a
+        ``bedrock-runtime`` client, calls ``converse`` with system/user text, and returns
+        the first content block; any error is re-raised as ``FatalError``.
+        """
         try:
             import boto3  # optional dependency (see pyproject optional-dependencies bedrock)
         except ImportError as e:

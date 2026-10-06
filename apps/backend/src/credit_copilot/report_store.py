@@ -17,14 +17,23 @@ _INVALID = re.compile(r'[\\/:*?"<>|\s]+')
 
 
 def _slugify(name: str) -> str:
+    """Sanitize an entity name into a filename-safe token.
+
+    Implementation: ``_INVALID`` (path separators + whitespace) is replaced with ``_``,
+    then leading/trailing ``._`` are stripped.
+    """
     return _INVALID.sub("_", name).strip("._")
 
 
 def save_report(memo: CreditMemo, reports_dir: Path | None = None) -> Path:
-    """Write the report to JSON and return the path; creates the directory if missing.
+    """Serialize a :class:`CreditMemo` to a timestamped JSON file and return its path.
 
-    ``reports_dir`` defaults to REPORTS_DIR; tests may pass tmp_path
-    to avoid polluting the real directory.
+    Implementation: creates the directory, builds
+    ``{slugified_entity_name}_{YYYYMMDD_HHMMSS}.json``, and writes ``memo.model_dump()``
+    as indented UTF-8 JSON (``ensure_ascii=False`` preserves Chinese names).
+
+    ``reports_dir`` defaults to ``REPORTS_DIR``; tests pass ``tmp_path`` to avoid
+    polluting the real directory.
     """
     base = reports_dir or REPORTS_DIR
     base.mkdir(parents=True, exist_ok=True)
