@@ -1,6 +1,8 @@
 # Credit Copilot
 
-A multi-tool AI agent for the **wholesale / corporate credit domain** (对公/批发信贷域). The first shipped scenario is **automated credit due-diligence report generation (credit memo, 授信尽调报告)**: given a single line like *"generate a credit memo for company X"*, the agent breaks the task down, pulls data across the data warehouse and policy documents, checks compliance, and writes a **structured report with citations**.
+[English](./README.md) · [简体中文](./README.zh-CN.md)
+
+A multi-tool AI agent for the **wholesale / corporate credit domain**. The first shipped scenario is **automated credit due-diligence report generation (credit memo)**: given a single line like *"generate a credit memo for company X"*, the agent breaks the task down, pulls data across the data warehouse and policy documents, checks compliance, and writes a **structured report with citations**.
 
 > A portfolio project for the transition from data-warehouse engineer to LLM-agent engineer.
 
@@ -58,36 +60,36 @@ One line — "generate a credit memo for Huayu Electronics Group"
 
 > **Why "deterministic pipeline + Agents SDK" rather than "LangGraph DAG"?** The OpenAI Agents SDK has no DAG primitive — it is an agent-loop framework. Task decomposition is expressed as ordinary Python orchestration functions (which is also the better, more controllable approach); the SDK contributes `function_tool` / `input_guardrail` / `output_guardrail` / `Runner` / tracing. See [tech selection](#tech-stack) below.
 
-## Engineering structure (工程结构图)
+## Engineering structure
 
 The whole chain is five layers; data flows one full loop along `query → SSE → report`. When reading code, use this diagram to locate "what this layer does and which layer it depends on".
 
 ```mermaid
 flowchart TB
-    subgraph FE["① Frontend · Next.js 16 + React 19（apps/web）"]
+    subgraph FE["① Frontend · Next.js 16 + React 19 (apps/web)"]
         A1["page.tsx query entry"] --> A2["useReportStream SSE parsing"] --> A3["ReportView chapters/compliance/data-gaps rendering"]
     end
 
-    subgraph API["② API layer · FastAPI（api/app.py）"]
-        B1["POST /report（sync JSON）"]
-        B2["POST /report/stream（SSE streaming）"]
+    subgraph API["② API layer · FastAPI (api/app.py)"]
+        B1["POST /report (sync JSON)"]
+        B2["POST /report/stream (SSE streaming)"]
     end
 
-    subgraph AGENT["③ Agent orchestration · OpenAI Agents SDK（agents/）"]
+    subgraph AGENT["③ Agent orchestration · OpenAI Agents SDK (agents/)"]
         C1["orchestrator deterministic pipeline + bounded loop-back"]
-        C2["pipeline task decomposition（resolve→collect→compliance→compose）"]
-        C3["memo_agent drafting agent（@function_tool）"]
+        C2["pipeline task decomposition (resolve→collect→compliance→compose)"]
+        C3["memo_agent drafting agent (@function_tool)"]
         C4["guardrails input/output validation"]
     end
 
-    subgraph TOOL["④ Tool layer · framework-agnostic（tools/ + llm/）"]
+    subgraph TOOL["④ Tool layer · framework-agnostic (tools/ + llm/)"]
         D1["datawarehouse canned SQL + read-only guardrail"]
         D2["policy_search BM25 chunk retrieval"]
-        D3["llm/client multi-provider（OpenAI/DeepSeek/Bedrock）"]
+        D3["llm/client multi-provider (OpenAI/DeepSeek/Bedrock)"]
     end
 
     subgraph DATA["⑤ Data layer"]
-        E1[("PostgreSQL + pgvector（star schema）")]
+        E1[("PostgreSQL + pgvector (star schema)")]
         E2["policy corpus docs/policy/*.md"]
     end
 
@@ -102,24 +104,24 @@ flowchart TB
     B2 -- "SSE: start/node/done/error" --> A2
 ```
 
-- **Layer ③ (orchestration) is the project's heartbeat** (编排层是项目的心跳): all four principles land here — this is the core interview area for the transition.
-- **Layer ④ (tool layer) is deliberately framework-agnostic** (工具层刻意框架无关): it imports nothing from the Agents SDK, so it can be reused verbatim for later T1 Q&A / T3 workflow-automation scenarios.
+- **Layer ③ (orchestration) is the project's heartbeat**: all four principles land here — this is the core interview area for the transition.
+- **Layer ④ (tool layer) is deliberately framework-agnostic**: it imports nothing from the Agents SDK, so it can be reused verbatim for later T1 Q&A / T3 workflow-automation scenarios.
 - The directory tree is under ["Monorepo structure"](#monorepo-structure) below; per-module responsibilities are under the backend / frontend module structures.
 
-## Domain model (领域模型 — credit due-diligence basics)
+## Domain model — credit due-diligence basics
 
-> These are the core concepts a credit analyst reasons with. The "wholesale credit" domain (对公授信) centers on a **borrowing group** (借款集团, the risk-consolidation unit), its **borrowers** (借款人/债务人), their **credit facilities** (授信方案: main + sub facilities), **exposure & limit utilization** (敞口与限额使用), **guarantees / related parties** (担保与相关方), and **ratings** (评级, which gate access via policy lines like the **rating access threshold** 评级准入线).
+> These are the core concepts a credit analyst reasons with. The wholesale-credit domain centers on a **borrowing group** (the risk-consolidation unit), its **borrowers** (obligors), their **credit facilities** (main + sub facilities), **exposure & limit utilization**, **guarantees / related parties**, and **ratings** (which gate access via policy lines like the **rating access threshold**).
 
 | Table | Meaning |
 |---|---|
-| `dim_borrowing_group` | Borrowing group (借款集团 — risk-consolidation unit) |
-| `dim_borrower` | Borrower / obligor (借款人/债务人) |
-| `dim_main_facility` | Main facility (主额度 — Revolving/Term/Trade/Bridge) |
-| `dim_sub_facility` | Sub-facility (子额度 — LC/Guarantee/Cash/Term/Aval) |
-| `fact_rating` | Ratings (评级 — time-dimension SCD) |
-| `dim_involved_party` | Related parties (相关方 — borrower/guarantor/agent/lead arranger) |
+| `dim_borrowing_group` | Borrowing group (risk-consolidation unit) |
+| `dim_borrower` | Borrower / obligor |
+| `dim_main_facility` | Main facility (Revolving/Term/Trade/Bridge) |
+| `dim_sub_facility` | Sub-facility (LC/Guarantee/Cash/Term/Aval) |
+| `fact_rating` | Ratings (time-dimension SCD) |
+| `dim_involved_party` | Related parties (borrower/guarantor/agent/lead arranger) |
 | `map_carm_wren` | Cross-system entity mapping (incl. unmatched — demonstrates the data-quality pain point) |
-| `fact_utilization` | Facility utilization / exposure (额度使用/敞口 — monthly time dimension) |
+| `fact_utilization` | Facility utilization / exposure (monthly time dimension) |
 
 ## Quick start
 
@@ -148,7 +150,7 @@ curl -N -X POST localhost:8000/report/stream \
   -d '{"query":"generate a credit memo for Huayu Software Services PLC"}'
 ```
 
-> `Huayu Software Services PLC (华宇软件服务有限责任公司)` is a real seeded borrower (under `Huayu Electronics Group (华宇电子集团)`). Seeded groups include `Hengyuan Holdings Group (恒远控股集团)`, `Meridian Global Holdings (梅里迪安环球控股)`, `Atlas Energy Partners (阿特拉斯能源合伙)`, and `Vesta Pharma Ltd (维斯塔制药有限公司)` — see `apps/backend/data/generate_data.py`.
+> `Huayu Software Services PLC` is a real seeded borrower (under `Huayu Electronics Group`). Seeded groups include `Hengyuan Holdings Group`, `Meridian Global Holdings`, `Atlas Energy Partners`, and `Vesta Pharma Ltd` — see `apps/backend/data/generate_data.py`.
 >
 > Without an LLM key, the backend degrades to a "rule-based conclusion" and still produces a report (see the fallback branch in [agents/memo_agent.py](apps/backend/src/credit_copilot/agents/memo_agent.py)).
 
@@ -209,7 +211,7 @@ apps/web/src/
 
 ## Tech stack
 
-The stack aligns with **mainstream Western teams** (欧美主流), so switching to remote work is seamless. Full rationale is in the [selection notes](#selection-notes) below.
+The stack aligns with **mainstream Western teams**, so switching to remote work is seamless. Full rationale is in the [selection notes](#selection-notes) below.
 
 | Layer | Choice | Notes |
 |---|---|---|
@@ -222,13 +224,13 @@ The stack aligns with **mainstream Western teams** (欧美主流), so switching 
 | Retrieval | BM25-lite (offline, zero-embedding-key fallback); stage 1 can add BGE-M3 vector pre-filter + rerank | — |
 | Observability / eval | Agents SDK built-in tracing (for now); Langfuse / RAGAS + SQL golden set (stage 4) | — |
 
-### Selection notes (为什么是这套)
+### Selection notes
 
 - **OpenAI Agents SDK vs LangGraph**: LangGraph is the most "production-ready" graph-orchestration framework, but the Agents SDK is simpler, has guardrails/tracing built in, is the most token-efficient, and matches the OpenAI-first ecosystem. The trade-off is that it has no deterministic DAG primitive — this project keeps the deterministic flow in plain Python orchestration functions (see [Architecture](#architecture)), and the SDK only handles the LLM step and validation. It is also OpenAI-first, so Claude goes through Bedrock (that path is built in).
 - **Next.js + FastAPI**: the mainstream front/back-end combo for AI products in 2026; connects straight to SSE with zero Node-BFF complexity.
 - **Monorepo**: uv + npm + Turborepo is the modern Western-team default; the backend's absolute imports (`from credit_copilot…`) are unaffected by nesting, and the policy-corpus relative path `apps/backend/docs/policy` stays put.
 
-## Learning path (学习建议 — data-warehouse engineer's transition)
+## Learning path — a data-warehouse engineer's transition
 
 > Your strengths are **data modeling / SQL / Python / ETL**; your gaps are **frontend (React/Next.js), backend web (FastAPI), and agent/LLM orchestration**. Start from the data layer you know best and expand outward layer by layer, pairing each with a "hands-on task" to prove you actually understand it.
 
