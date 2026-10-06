@@ -40,6 +40,15 @@ from credit_copilot.tools.policy_search import search_policy_docs
 def resolve_entity(query: str) -> Entity:
     """Resolve the query to exactly one :class:`Entity` (result-validation gate 2).
 
+    Args:
+        query: The user's report request.
+
+    Returns:
+        The uniquely matched ``Entity``.
+
+    Raises:
+        EntityResolutionError: on zero matches, or more than one match.
+
     Implementation: ``extract_entity_hint``, then fuzzy-search both borrowers and
     groups; 0 hits → error, >1 hit → ambiguous error (carrying the candidates), exactly
     1 → that entity. Raising mirrors an input-guardrail tripwire.
@@ -76,6 +85,14 @@ def resolve_entity(query: str) -> Entity:
 
 def collect_facts(entity: Entity) -> dict[str, ToolResult]:
     """Collect per-section facts (DB + RAG) in parallel, degrading instead of crashing.
+
+    Args:
+        entity: The resolved borrower or group.
+
+    Returns:
+        A ``dict`` keyed by fact name (``overview``, ``ratings``, ``facilities``,
+        ``exposure``, ``parties``, ``policy``, and optionally ``group``) whose values are
+        ``ToolResult`` (any error or timeout degrades to ``ToolResult.failure``).
 
     Implementation: fetch the overview first to derive ``group_id``/industry/name; then
     run ratings / facilities / exposure / parties / policy (plus the group overview for
@@ -117,6 +134,13 @@ def collect_facts(entity: Entity) -> dict[str, ToolResult]:
 
 def build_compliance_flags(entity: Entity, facts: dict[str, ToolResult]) -> list[Flag]:
     """Apply the deterministic compliance rules and return :class:`Flag` objects.
+
+    Args:
+        entity: The resolved entity (used to name the entity in flag details).
+        facts: Collected fact results (``collect_facts`` output).
+
+    Returns:
+        A ``list[Flag]`` of triggered compliance flags (may be empty).
 
     Implementation (three rule blocks): (1) ``industry == "Real Estate"`` → access
     restriction; (2) current internal rating ``≤ BB-`` → error, negative outlook →
@@ -171,7 +195,17 @@ def build_compliance_flags(entity: Entity, facts: dict[str, ToolResult]) -> list
 
 
 def _money(v) -> str:
-    """Format an amount in millions (e.g. 2_500_000 -> "2.50 million"); pass through non-numeric."""
+    """Format an amount in millions (e.g. ``2_500_000 -> "2.50 million"``).
+
+    Args:
+        v: A numeric amount (or any value).
+
+    Returns:
+        ``f"{value / 1_000_000:,.2f} million"``, or ``str(v)`` when ``v`` is not numeric.
+
+    Implementation: divides by 1,000,000 and formats with two decimals; ``TypeError`` /
+    ``ValueError`` fall through to ``str(v)``.
+    """
     try:
         return f"{float(v) / 1_000_000:,.2f} million"
     except (TypeError, ValueError):
@@ -179,19 +213,43 @@ def _money(v) -> str:
 
 
 def _display_name(name_cn, name_en) -> str:
-    """Display name: English first, with the Chinese name in parentheses when present."""
+    """Display name: English first, with the Chinese name in parentheses when present.
+
+    Args:
+        name_cn: Chinese name field (may be empty).
+        name_en: English name field (may be empty).
+
+    Returns:
+        ``"<name_en> (<name_cn>)"`` when ``name_cn`` is non-empty, else ``name_en``.
+    """
     name_en = name_en or ""
     name_cn = name_cn or ""
     return f"{name_en} ({name_cn})" if name_cn else name_en
 
 
 def _tr(facts: dict[str, ToolResult], key: str) -> ToolResult:
-    """Fetch a collected fact by key, yielding a 'Not collected' failure when absent."""
+    """Fetch a collected fact by key, yielding a "Not collected" failure when absent.
+
+    Args:
+        facts: The collected fact map.
+        key: The fact name to look up.
+
+    Returns:
+        The matching ``ToolResult``, or ``ToolResult.failure("Not collected")``.
+    """
     return facts.get(key, ToolResult.failure("Not collected"))
 
 
 def compose_report(entity: Entity, facts: dict[str, ToolResult], flags: list[Flag]) -> CreditMemo:
     """Assemble the :class:`CreditMemo`: chapters 1–6 deterministic, chapter 7 via LLM.
+
+    Args:
+        entity: The resolved entity.
+        facts: Collected fact results.
+        flags: Compliance flags from ``build_compliance_flags``.
+
+    Returns:
+        A ``CreditMemo`` with 7 sections, citations, compliance flags, and data gaps.
 
     Implementation: walks the collected facts chapter by chapter, rendering rows into
     bullet lists with ``[t:table#id]`` citations; a missing fact emits "No data" and is
@@ -328,6 +386,12 @@ def compose_report(entity: Entity, facts: dict[str, ToolResult], flags: list[Fla
 def validate_report(report: CreditMemo) -> list[str]:
     """Run result validation and return a list of error strings (empty = valid).
 
+    Args:
+        report: The assembled memo.
+
+    Returns:
+        ``list[str]`` of validation errors; empty list means the report passed.
+
     Implementation: checks that all 7 ``SECTION_TITLES`` are present, and that citation
     coverage (``_citation_coverage``) meets the 0.9 threshold.
     """
@@ -344,6 +408,12 @@ def validate_report(report: CreditMemo) -> list[str]:
 
 def _citation_coverage(report: CreditMemo) -> float:
     """Compute the fraction of citable sections that carry at least one citation.
+
+    Args:
+        report: The assembled memo.
+
+    Returns:
+        A float in ``[0.0, 1.0]``; 0.0 when there are no citable sections.
 
     Implementation: every section except "Risk Points & Conclusion" must have a non-empty
     ``citations`` list; returns 0.0 when there are no citable sections.

@@ -25,7 +25,14 @@ _GRADE_RANK = {g: i for i, g in enumerate(GRADES)}
 
 
 def _grade_at_or_below(grade: str, boundary: str) -> bool:
-    """Whether ``grade`` is at or below ``boundary``.
+    """Whether ``grade`` is at or below ``boundary`` on the rating ladder.
+
+    Args:
+        grade: Rating grade to check (e.g. ``"BB-"``).
+        boundary: Reference grade to compare against (e.g. ``"BB+"``).
+
+    Returns:
+        True when ``grade`` ranks at or below (worse than) ``boundary``.
 
     Implementation: compares positions in ``_GRADE_RANK`` (a larger index is worse);
     unknown grades map to index 999 so they are treated as "at or below".
@@ -45,8 +52,8 @@ class Entity:
     def name(self) -> str:
         """Display name: English first, with the Chinese name in parentheses when present.
 
-        Implementation: ``f"{name_en} ({name_cn})"`` when a Chinese name exists, else
-        just ``name_en``.
+        Returns:
+            ``"<name_en> (<name_cn>)"`` when a Chinese name exists, else ``name_en``.
         """
         return f"{self.name_en} ({self.name_cn})" if self.name_cn else self.name_en
 
@@ -81,7 +88,14 @@ class EntityResolutionError(Exception):
     """
 
     def __init__(self, message: str, candidates: list[Entity] | None = None) -> None:
-        """Initialize the exception.
+        """Initialize the exception with a message and optional candidates.
+
+        Args:
+            message: Human-readable error text.
+            candidates: Ambiguous entity matches (empty when the failure is "no match").
+
+        Returns:
+            None — stores ``message`` and ``candidates`` on the instance.
 
         Implementation: passes ``message`` to the parent ``Exception`` and keeps the
         ambiguous ``candidates`` so the API can relay them to the user.
@@ -109,6 +123,12 @@ _EN_TRAILING = re.compile(r"(?i)\s+(credit\s+|due[\s-]*diligence\s+)?(report|mem
 
 def extract_entity_hint(query: str) -> str:
     """Extract the entity name from a query (bilingual deterministic heuristic).
+
+    Args:
+        query: Raw user query, in Chinese, English, or mixed.
+
+    Returns:
+        The extracted entity-name string, or ``""`` when nothing is recognizable.
 
     Implementation: (1) quoted names win (``_QUOTED``); (2) strip a leading Chinese verb
     and a trailing Chinese report suffix; (3) strip English leading patterns

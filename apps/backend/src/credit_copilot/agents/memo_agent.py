@@ -38,7 +38,11 @@ from credit_copilot.tools.policy_search import search_policy_docs
 def _wrap(r: ToolResult) -> dict:
     """Convert a ToolResult into the JSON-friendly dict the SDK returns to the LLM.
 
-    Implementation: ``{"ok": r.ok, "data": r.data, "error": r.error}``.
+    Args:
+        r: The ``ToolResult`` to convert.
+
+    Returns:
+        ``{"ok": r.ok, "data": r.data, "error": r.error}``.
     """
     return {"ok": r.ok, "data": r.data, "error": r.error}
 
@@ -48,7 +52,11 @@ def _wrap(r: ToolResult) -> dict:
 def search_borrowers_tool(name: str) -> dict:
     """Fuzzy-match borrowers by name — delegates to ``datawarehouse.search_borrowers``.
 
-    Returns the wrapped ToolResult as a JSON dict.
+    Args:
+        name: Borrower-name fragment to fuzzy-match.
+
+    Returns:
+        ``{"ok", "data", "error"}`` wrapping the underlying ``ToolResult``.
     """
     return _wrap(search_borrowers(name))
 
@@ -57,7 +65,11 @@ def search_borrowers_tool(name: str) -> dict:
 def search_groups_tool(name: str) -> dict:
     """Fuzzy-match borrowing groups by name — delegates to ``datawarehouse.search_groups``.
 
-    Returns the wrapped ToolResult as a JSON dict.
+    Args:
+        name: Group-name fragment to fuzzy-match.
+
+    Returns:
+        ``{"ok", "data", "error"}`` wrapping the underlying ``ToolResult``.
     """
     return _wrap(search_groups(name))
 
@@ -66,7 +78,11 @@ def search_groups_tool(name: str) -> dict:
 def get_borrower_overview_tool(borrower_id: int) -> dict:
     """Borrower + its group overview — delegates to ``datawarehouse.get_borrower_overview``.
 
-    Returns the wrapped ToolResult as a JSON dict.
+    Args:
+        borrower_id: The borrower's primary key.
+
+    Returns:
+        ``{"ok", "data", "error"}`` wrapping the underlying ``ToolResult``.
     """
     return _wrap(get_borrower_overview(borrower_id))
 
@@ -75,7 +91,11 @@ def get_borrower_overview_tool(borrower_id: int) -> dict:
 def get_group_overview_tool(group_id: int) -> dict:
     """Group overview — delegates to ``datawarehouse.get_group_overview``.
 
-    Returns the wrapped ToolResult as a JSON dict.
+    Args:
+        group_id: The group's primary key.
+
+    Returns:
+        ``{"ok", "data", "error"}`` wrapping the underlying ``ToolResult``.
     """
     return _wrap(get_group_overview(group_id))
 
@@ -84,7 +104,12 @@ def get_group_overview_tool(group_id: int) -> dict:
 def get_ratings_tool(entity_type: str, entity_id: int) -> dict:
     """Ratings (history incl., newest first) — delegates to ``datawarehouse.get_ratings``.
 
-    Returns the wrapped ToolResult as a JSON dict.
+    Args:
+        entity_type: ``"borrower"`` or ``"group"``.
+        entity_id: The entity's primary key.
+
+    Returns:
+        ``{"ok", "data", "error"}`` wrapping the underlying ``ToolResult``.
     """
     return _wrap(get_ratings(entity_type, entity_id))
 
@@ -93,7 +118,11 @@ def get_ratings_tool(entity_type: str, entity_id: int) -> dict:
 def get_facilities_tool(borrower_id: int) -> dict:
     """Main + sub facilities — delegates to ``datawarehouse.get_facilities``.
 
-    Returns the wrapped ToolResult as a JSON dict.
+    Args:
+        borrower_id: The borrower's primary key.
+
+    Returns:
+        ``{"ok", "data", "error"}`` wrapping the underlying ``ToolResult``.
     """
     return _wrap(get_facilities(borrower_id))
 
@@ -102,7 +131,11 @@ def get_facilities_tool(borrower_id: int) -> dict:
 def get_exposure_tool(group_id: int) -> dict:
     """Group exposure vs. limit — delegates to ``datawarehouse.get_exposure``.
 
-    Returns the wrapped ToolResult as a JSON dict.
+    Args:
+        group_id: The group's primary key.
+
+    Returns:
+        ``{"ok", "data", "error"}`` wrapping the underlying ``ToolResult``.
     """
     return _wrap(get_exposure(group_id))
 
@@ -111,7 +144,11 @@ def get_exposure_tool(group_id: int) -> dict:
 def get_involved_parties_tool(borrower_id: int) -> dict:
     """Related parties & guarantees — delegates to ``datawarehouse.get_involved_parties``.
 
-    Returns the wrapped ToolResult as a JSON dict.
+    Args:
+        borrower_id: The borrower's primary key.
+
+    Returns:
+        ``{"ok", "data", "error"}`` wrapping the underlying ``ToolResult``.
     """
     return _wrap(get_involved_parties(borrower_id))
 
@@ -120,7 +157,12 @@ def get_involved_parties_tool(borrower_id: int) -> dict:
 def search_policy_docs_tool(query: str, top_k: int = 5) -> dict:
     """Search policy-document chunks — delegates to ``policy_search.search_policy_docs``.
 
-    Returns the wrapped ToolResult as a JSON dict.
+    Args:
+        query: Free-text search query.
+        top_k: Maximum number of chunks to return.
+
+    Returns:
+        ``{"ok", "data", "error"}`` wrapping the underlying ``ToolResult``.
     """
     return _wrap(search_policy_docs(query, top_k=top_k))
 
@@ -140,6 +182,12 @@ MEMO_TOOLS: list[Tool] = [
 
 def build_model(settings: Settings | None = None) -> OpenAIChatCompletionsModel:
     """Build the Agents SDK model object for the configured provider.
+
+    Args:
+        settings: Optional settings override (defaults to ``get_settings()``).
+
+    Returns:
+        An ``OpenAIChatCompletionsModel`` backed by an ``AsyncOpenAI`` client.
 
     Implementation: OpenAI maps to ``openai_*`` config; other providers map to
     ``llm_*`` and disable tracing (non-OpenAI endpoints must not push traces). Returns
@@ -163,6 +211,12 @@ def build_model(settings: Settings | None = None) -> OpenAIChatCompletionsModel:
 
 def build_composer_agent(settings: Settings | None = None) -> Agent:
     """Build the Agents SDK drafting agent for chapter 7.
+
+    Args:
+        settings: Optional settings override (defaults to ``get_settings()``).
+
+    Returns:
+        An ``Agent`` with the credit-analyst prompt, tool set, and output guardrail.
 
     Implementation: an ``Agent`` with a senior-credit-analyst system prompt (≤150 words,
     no fabrication), the ``MEMO_TOOLS`` tool set, and ``conclusion_output_guardrail`` as
@@ -191,6 +245,15 @@ _SYSTEM = (
 
 def synthesize_conclusion(entity: Entity, flags: list[Flag]) -> tuple[str, list[str], str]:
     """Produce the chapter-7 conclusion, degrading to a rule summary on failure.
+
+    Args:
+        entity: The resolved entity.
+        flags: Compliance flags to summarize.
+
+    Returns:
+        A 3-tuple ``(conclusion_text, citations, flag_text)`` — ``citations`` is
+        ``["[llm]"]`` on LLM success, ``[]`` on fallback; ``flag_text`` is the rule
+        summary used as the fallback body.
 
     Implementation: formats the flags into bullet lines; with no API key it returns the
     fallback directly. Otherwise it calls the LLM — Bedrock via ``LLMClient.complete``,

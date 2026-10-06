@@ -20,6 +20,15 @@ def conclusion_output_guardrail(
 ) -> GuardrailFunctionOutput:
     """Output guardrail for the drafting agent's conclusion.
 
+    Args:
+        context: SDK run context.
+        agent: The drafting agent.
+        output: The LLM output to validate.
+
+    Returns:
+        A ``GuardrailFunctionOutput`` — trips when the conclusion is empty or longer
+        than ``MAX_CONCLUSION_CHARS`` (500), otherwise reports its length.
+
     Implementation: casts output to text, then trips the guardrail (via ``Runner``) if
     it is empty or longer than ``MAX_CONCLUSION_CHARS`` (500); otherwise returns the
     length without tripping.
