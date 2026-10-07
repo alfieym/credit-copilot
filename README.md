@@ -165,7 +165,6 @@ credit-copilot/
 │   │   ├── pyproject.toml / uv.lock
 │   │   ├── .env.example
 │   │   ├── data/generate_data.py     # synthetic data
-│   │   ├── docs/policy/*.md          # policy corpus (RAG source)
 │   │   ├── tests/                    # unit tests covering the four principles
 │   │   └── src/credit_copilot/
 │   │       ├── agents/               # Agents SDK orchestration (see module structure below)
@@ -181,6 +180,9 @@ credit-copilot/
 │           ├── features/report/      # types + API client + SSE hook
 │           ├── components/           # query form, report view
 │           └── lib/                  # SSE parsing utility
+├── docs/                             # domain & policy docs (repo root)
+│   ├── business-rules.md             # business entities / compliance / report structure
+│   └── policy/*.md                   # policy corpus (RAG source)
 ├── turbo.json                        # unified task orchestration (dev/build/lint/test)
 ├── docker-compose.yml                # postgres (+ langfuse optional)
 ├── Makefile                          # unified entrypoint (backend + web targets)
@@ -230,7 +232,7 @@ The stack aligns with **mainstream Western teams**, so switching to remote work 
 
 - **OpenAI Agents SDK vs LangGraph**: LangGraph is the most "production-ready" graph-orchestration framework, but the Agents SDK is simpler, has guardrails/tracing built in, is the most token-efficient, and matches the OpenAI-first ecosystem. The trade-off is that it has no deterministic DAG primitive — this project keeps the deterministic flow in plain Python orchestration functions (see [Architecture](#architecture)), and the SDK only handles the LLM step and validation. It is also OpenAI-first, so Claude goes through Bedrock (that path is built in).
 - **Next.js + FastAPI**: the mainstream front/back-end combo for AI products in 2026; connects straight to SSE with zero Node-BFF complexity.
-- **Monorepo**: uv + npm + Turborepo is the modern Western-team default; the backend's absolute imports (`from credit_copilot…`) are unaffected by nesting, and the policy-corpus relative path `apps/backend/docs/policy` stays put.
+- **Monorepo**: uv + npm + Turborepo is the modern Western-team default; the backend's absolute imports (`from credit_copilot…`) are unaffected by nesting, and the policy corpus lives at the repo root `docs/policy/` (outside the app package).
 
 ## Learning path — a data-warehouse engineer's transition
 

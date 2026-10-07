@@ -168,7 +168,6 @@ credit-copilot/
 │   │   ├── pyproject.toml / uv.lock
 │   │   ├── .env.example
 │   │   ├── data/generate_data.py     # 合成数据
-│   │   ├── docs/policy/*.md          # 政策语料（RAG 来源）
 │   │   ├── tests/                    # 覆盖四条原则的单元测试
 │   │   └── src/credit_copilot/
 │   │       ├── agents/               # Agents SDK 编排（见下方模块结构）
@@ -184,6 +183,9 @@ credit-copilot/
 │           ├── features/report/      # 类型 + API 客户端 + SSE hook
 │           ├── components/           # 查询表单、报告视图
 │           └── lib/                  # SSE 解析工具
+├── docs/                             # 领域与政策文档（仓库根目录）
+│   ├── business-rules.md             # 业务实体 / 合规流程 / 报告结构
+│   └── policy/*.md                   # 政策语料（RAG 来源）
 ├── turbo.json                        # 统一任务编排（dev/build/lint/test）
 ├── docker-compose.yml                # postgres（+ 可选 langfuse）
 ├── Makefile                          # 统一入口（backend + web targets）
@@ -235,7 +237,7 @@ apps/web/src/
 
 - **OpenAI Agents SDK vs LangGraph**：LangGraph 是最「生产级」的图编排框架，但 Agents SDK 更简单、内置 guardrails/tracing、最省 token，且契合 OpenAI 优先的生态。代价是它没有确定性 DAG 原语——本项目把确定性流程放在普通 Python 编排函数里（见[架构](#architecture)），SDK 只负责 LLM 步骤和校验。它也是 OpenAI 优先的，所以 Claude 走 Bedrock（这条路已内置）。
 - **Next.js + FastAPI**：2026 年 AI 产品主流前后端组合；直接对接 SSE，零 Node-BFF 复杂度。
-- **Monorepo**：uv + npm + Turborepo 是现代欧美团队的默认；后端绝对导入（`from credit_copilot…`）不受嵌套影响，政策语料的相对路径 `apps/backend/docs/policy` 也保持不变。
+- **Monorepo**：uv + npm + Turborepo 是现代欧美团队的默认；后端绝对导入（`from credit_copilot…`）不受嵌套影响，政策语料放在仓库根目录 `docs/policy/`（独立于 app 包）。
 
 ## 学习建议 — 数仓工程师的转型路径
 

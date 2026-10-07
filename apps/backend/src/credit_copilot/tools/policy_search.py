@@ -14,7 +14,7 @@ from pathlib import Path
 
 from credit_copilot.tools.base import ToolResult
 
-DOCS_DIR = Path(__file__).resolve().parents[3] / "docs" / "policy"
+DOCS_DIR = Path(__file__).resolve().parents[5] / "docs" / "policy"
 
 _WORD_RE = re.compile(r"[A-Za-z0-9_]+")
 

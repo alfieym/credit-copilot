@@ -215,7 +215,7 @@ Each rule emits one `Flag` with `level` (`error` / `warning`), `rule` (title), `
 ## 3. Risk-compliance documents · the policy corpus (政策语料)
 
 Four policy documents live in
-[`apps/backend/docs/policy/`](../apps/backend/docs/policy/). They are chunked for RAG: each
+[`docs/policy/`](./policy/). They are chunked for RAG: each
 `## ` heading becomes a chunk whose id is `title#heading` (where `title` is the filename with the
 leading numeric prefix stripped, e.g. `03-rating-access-policy` → `rating-access-policy`). A
 `policy_ref` such as `rating-access-policy#Rating Threshold` therefore resolves to a specific
@@ -223,7 +223,7 @@ document section.
 
 > Status legend: ✅ = enforced by a code rule · ⬜ = documented in the corpus but not yet enforced.
 
-### 3.1 [`01-industry-access-policy.md`](../apps/backend/docs/policy/01-industry-access-policy.md) — Industry Access Policy
+### 3.1 [`01-industry-access-policy.md`](./policy/01-industry-access-policy.md) — Industry Access Policy
 
 | Section | Rule | Status |
 |---|---|---|
@@ -231,7 +231,7 @@ document section.
 | `Restricted Industries` | Steel, cement, electrolytic aluminum, flat glass, etc. — maintain existing exposure only, no new exposure | ⬜ |
 | `Technology Industry Support` | Semiconductors, data centers, software services — key-support list; exposure limits may be raised by 10% | ⬜ |
 
-### 3.2 [`02-exposure-limits-and-concentration-policy.md`](../apps/backend/docs/policy/02-exposure-limits-and-concentration-policy.md) — Exposure Limits & Concentration
+### 3.2 [`02-exposure-limits-and-concentration-policy.md`](./policy/02-exposure-limits-and-concentration-policy.md) — Exposure Limits & Concentration
 
 | Section | Rule | Status |
 |---|---|---|
@@ -239,7 +239,7 @@ document section.
 | `Concentration Warning` | 80% utilization → warning; 100% → new credit suspended | ✅ |
 | `Single Borrower Limit` | A single borrower's exposure ≤ 15% of the bank's net tier-1 capital | ⬜ |
 
-### 3.3 [`03-rating-access-policy.md`](../apps/backend/docs/policy/03-rating-access-policy.md) — Rating Access
+### 3.3 [`03-rating-access-policy.md`](./policy/03-rating-access-policy.md) — Rating Access
 
 | Section | Rule | Status |
 |---|---|---|
@@ -247,7 +247,7 @@ document section.
 | `Outlook Management` | Negative → strengthen monitoring quarterly→monthly; Developing → new credit suspended | ✅ (Negative) / ⬜ (Developing) |
 | `External Rating Reference` | S&P / Moody's external rating >2 notches below internal → rating-difference review | ⬜ |
 
-### 3.4 [`04-guarantee-policy.md`](../apps/backend/docs/policy/04-guarantee-policy.md) — Guarantee
+### 3.4 [`04-guarantee-policy.md`](./policy/04-guarantee-policy.md) — Guarantee
 
 | Section | Rule | Status |
 |---|---|---|
