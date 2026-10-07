@@ -6,6 +6,8 @@ A multi-tool AI agent for the **wholesale / corporate credit domain**. The first
 
 > A portfolio project for the transition from data-warehouse engineer to LLM-agent engineer.
 
+📄 **Business rules**: [docs/business-rules.md](docs/business-rules.md) — what each entity represents, the compliance flow, and the policy corpus & report structure.
+
 ## Why this scenario
 
 Writing a credit memo today means an analyst hand-assembles ratings, facilities, exposure, guarantees, and compliance clauses across CARM / WREN / the data warehouse / policy documents — hours to days of work, and clauses are easy to miss. This is the highest-ROI agent scenario in the credit domain, already validated in production:
