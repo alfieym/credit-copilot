@@ -30,7 +30,8 @@ class Chunk:
     def cite(self) -> str:
         """Render this chunk as an inline citation (e.g. ``[p:policy#Heading]``).
 
-        Implementation: ``f"[p:{self.id}]"`` — ``id`` is ``{title}#{heading}``.
+        Returns:
+            ``f"[p:{self.id}]"`` — ``id`` is ``{title}#{heading}``.
         """
         return f"[p:{self.id}]"
 
@@ -38,8 +39,14 @@ class Chunk:
 def _tokenize(text: str) -> list[str]:
     """Tokenize text into lowercased English word tokens.
 
-    Implementation: ``_WORD_RE.findall(text.lower())`` — only ``[A-Za-z0-9_]+`` runs are
-    kept, so punctuation and CJK are dropped (English-only BM25).
+    Args:
+        text: The text to tokenize.
+
+    Returns:
+        ``list[str]`` of ``[A-Za-z0-9_]+`` runs, lowercased.
+
+    Implementation: ``_WORD_RE.findall(text.lower())`` — punctuation and CJK are dropped
+    (English-only BM25).
     """
     return _WORD_RE.findall(text.lower())
 
@@ -47,9 +54,15 @@ def _tokenize(text: str) -> list[str]:
 def load_chunks(docs_dir: Path = DOCS_DIR) -> list[Chunk]:
     """Load and split ``docs/policy/*.md`` into citable :class:`Chunk` objects.
 
+    Args:
+        docs_dir: Directory of policy markdown files (defaults to ``DOCS_DIR``).
+
+    Returns:
+        A ``list[Chunk]`` — one per non-empty ``## `` section, id ``{title}#{heading}``.
+
     Implementation: for each ``*.md`` file, strip the numeric filename prefix
-    (``01-…`` → ``…``), drop the leading ``# `` title line, split the body on ``## ``
-    headings, and build ``Chunk(id=f"{title}#{heading}")`` per non-empty body.
+    (``01-…`` → ``…``), drop the leading ``# `` title line, and split the body on ``## ``
+    headings.
     """
     chunks: list[Chunk] = []
     for path in sorted(docs_dir.glob("*.md")):
@@ -77,6 +90,10 @@ def load_chunks(docs_dir: Path = DOCS_DIR) -> list[Chunk]:
 def _index() -> tuple[list[Chunk], dict[str, int], dict[str, list[str]], float]:
     """Build (and cache) the BM25 index.
 
+    Returns:
+        A 4-tuple ``(chunks, df, chunk_tokens, avg_len)`` — the chunk list, document
+        frequency map, per-chunk token lists, and average chunk length.
+
     Implementation: tokenize every chunk once, then compute document frequency (``df``),
     per-chunk token lists (``chunk_tokens``), and the average chunk length. Cached via
     ``@lru_cache`` so the corpus is read only once per process.
@@ -95,6 +112,14 @@ def _index() -> tuple[list[Chunk], dict[str, int], dict[str, list[str]], float]:
 
 def _bm25(query: str, top_k: int) -> list[tuple[Chunk, float]]:
     """Rank chunks with the BM25 scoring function and return the top-k.
+
+    Args:
+        query: The search query.
+        top_k: Maximum number of chunks to return.
+
+    Returns:
+        ``list[tuple[Chunk, float]]`` — ``(chunk, score)`` pairs, sorted by score
+        descending.
 
     Implementation: for each chunk compute ``Σ idf * (tf*(k1+1)) / (tf + k1*(1 - b +
     b*len/avg_len))`` over the query terms (k1=1.5, b=0.75), keep non-zero scores, sort
@@ -123,6 +148,14 @@ def _bm25(query: str, top_k: int) -> list[tuple[Chunk, float]]:
 
 def search_policy_docs(query: str, *, top_k: int = 5) -> ToolResult:
     """Search the policy corpus and return the hits as a :class:`ToolResult`.
+
+    Args:
+        query: Free-text search query.
+        top_k: Maximum number of chunks to return (default 5).
+
+    Returns:
+        A ``ToolResult`` whose ``data`` is ``list[(Chunk, score)]``; failures degrade to
+        a ``fallback_applied`` failure rather than raising.
 
     Implementation: delegates to ``_bm25`` and wraps ``(Chunk, score)`` pairs in a
     successful result; any internal error is caught and returned as a

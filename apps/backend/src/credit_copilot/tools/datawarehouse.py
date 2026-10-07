@@ -23,9 +23,14 @@ from credit_copilot.tools.base import (
 def _connect() -> psycopg.Connection:
     """Open a psycopg connection to the configured Postgres.
 
+    Returns:
+        A configured ``psycopg.Connection``.
+
+    Raises:
+        TransientError: on ``psycopg.OperationalError`` (so ``with_retry`` retries it).
+
     Implementation: ``psycopg.connect`` with ``connect_timeout=5`` and a per-statement
-    ``statement_timeout=10000`` (10s); an ``OperationalError`` is re-raised as a
-    :class:`TransientError` so ``with_retry`` retries it.
+    ``statement_timeout=10000`` (10s).
     """
     cfg = get_settings()
     try:
@@ -41,9 +46,20 @@ def _connect() -> psycopg.Connection:
 def _run_readonly(sql: str, params: tuple = ()) -> list[dict]:
     """Execute a canned read-only SQL statement safely and return rows as dicts.
 
-    Implementation: (1) ``validate_sql`` guardrail; (2) execute with bound params via
-    ``dict_row``; (3) map ``sqlstate=57014`` (statement timeout) to ``ToolTimeout`` and
-    other DB errors to ``FatalError``; (4) reject results over ``MAX_ROWS``.
+    Args:
+        sql: The parameterized read-only SQL statement.
+        params: Bound parameter values for the statement.
+
+    Returns:
+        ``list[dict]`` of result rows (one dict per row, keys = column names).
+
+    Raises:
+        ToolTimeout: on ``sqlstate=57014`` (statement timeout).
+        FatalError: on invalid SQL, other DB errors, or results over ``MAX_ROWS``.
+        TransientError: on connection failure (propagated from ``_connect``).
+
+    Implementation: ``validate_sql`` guardrail, then execute with bound parameters via
+    ``dict_row``.
     """
     validate_sql(sql)
     with _connect() as conn, conn.cursor(row_factory=dict_row) as cur:
@@ -67,10 +83,15 @@ def _run_readonly(sql: str, params: tuple = ()) -> list[dict]:
 def search_borrowers(name: str) -> list[dict]:
     """Fuzzy-match borrowers by name (matches either the Chinese or English name).
 
+    Args:
+        name: Borrower-name fragment to fuzzy-match.
+
+    Returns:
+        ``list[dict]`` of borrower rows (borrower_id, group_id, borrower_name_cn/en,
+        country, industry, legal_type, internal_rating, status).
+
     Implementation: ``ILIKE '%name%'`` on both ``borrower_name_cn`` and
-    ``borrower_name_en``, ordered by ``borrower_id``. Returns rows of (borrower_id,
-    group_id, borrower_name_cn, borrower_name_en, country, industry, legal_type,
-    internal_rating, status).
+    ``borrower_name_en``, ordered by ``borrower_id``.
     """
     return _run_readonly(
         "SELECT borrower_id, group_id, borrower_name_cn, borrower_name_en, country, "
@@ -85,9 +106,15 @@ def search_borrowers(name: str) -> list[dict]:
 def search_groups(name: str) -> list[dict]:
     """Fuzzy-match borrowing groups by name (matches either the Chinese or English name).
 
+    Args:
+        name: Group-name fragment to fuzzy-match.
+
+    Returns:
+        ``list[dict]`` of group rows (group_id, group_name_cn/en, country, industry,
+        consolidated_exposure_limit, risk_consolidation, status).
+
     Implementation: ``ILIKE '%name%'`` on both ``group_name_cn`` and ``group_name_en``,
-    ordered by ``group_id``. Returns rows of (group_id, group_name_cn, group_name_en,
-    country, industry, consolidated_exposure_limit, risk_consolidation, status).
+    ordered by ``group_id``.
     """
     return _run_readonly(
         "SELECT group_id, group_name_cn, group_name_en, country, industry, "
@@ -105,9 +132,14 @@ def search_groups(name: str) -> list[dict]:
 def get_borrower_overview(borrower_id: int) -> list[dict]:
     """Borrower plus its borrowing group (chapter 1 fact).
 
-    Implementation: ``dim_borrower LEFT JOIN dim_borrowing_group`` on ``group_id``,
-    returning the borrower's identity fields alongside its group's names / industry /
-    status for a single ``borrower_id``.
+    Args:
+        borrower_id: The borrower's primary key.
+
+    Returns:
+        ``list[dict]`` with the borrower's identity fields joined with its group's names /
+        industry / status.
+
+    Implementation: ``dim_borrower LEFT JOIN dim_borrowing_group`` on ``group_id``.
     """
     return _run_readonly(
         "SELECT b.borrower_id, b.borrower_name_cn, b.borrower_name_en, b.country, "
@@ -123,9 +155,14 @@ def get_borrower_overview(borrower_id: int) -> list[dict]:
 def get_group_overview(group_id: int) -> list[dict]:
     """Borrowing-group overview (chapter 1 fact for group queries).
 
-    Implementation: a single-row ``SELECT`` on ``dim_borrowing_group`` returning the
-    group's identity, industry, consolidated exposure limit, risk-consolidation mode,
-    and status.
+    Args:
+        group_id: The group's primary key.
+
+    Returns:
+        ``list[dict]`` with one group row (identity, industry, consolidated exposure
+        limit, risk-consolidation, status).
+
+    Implementation: a single-row ``SELECT`` on ``dim_borrowing_group``.
     """
     return _run_readonly(
         "SELECT group_id, group_name_cn, group_name_en, country, industry, "
@@ -138,6 +175,13 @@ def get_group_overview(group_id: int) -> list[dict]:
 @with_retry
 def get_ratings(entity_type: str, entity_id: int) -> list[dict]:
     """Ratings for an entity (chapter 2 fact), newest first.
+
+    Args:
+        entity_type: ``"borrower"`` or ``"group"``.
+        entity_id: The entity's primary key.
+
+    Returns:
+        ``list[dict]`` of rating rows, newest first.
 
     Implementation: ``SELECT ... FROM fact_rating WHERE entity_type = %s AND
     entity_id = %s ORDER BY valid_from DESC`` — current ratings (``valid_to`` NULL)
@@ -155,9 +199,15 @@ def get_ratings(entity_type: str, entity_id: int) -> list[dict]:
 def get_facilities(borrower_id: int) -> list[dict]:
     """Main facilities with their sub-facilities (chapter 3 fact).
 
+    Args:
+        borrower_id: The borrower's primary key.
+
+    Returns:
+        ``list[dict]`` of facility rows — one per sub-facility (main facilities without
+        subs keep NULL sub columns).
+
     Implementation: ``dim_main_facility LEFT JOIN dim_sub_facility`` on
-    ``main_facility_id`` — one row per sub-facility (main facilities without subs keep
-    NULL sub columns), ordered by main then sub id.
+    ``main_facility_id``, ordered by main then sub id.
     """
     return _run_readonly(
         "SELECT m.main_facility_id, m.facility_name, m.facility_type, m.currency, "
@@ -173,6 +223,13 @@ def get_facilities(borrower_id: int) -> list[dict]:
 @with_retry
 def get_exposure(group_id: int) -> list[dict]:
     """Group consolidated exposure vs. limit at the latest as-of date (chapter 4 fact).
+
+    Args:
+        group_id: The group's primary key.
+
+    Returns:
+        ``list[dict]`` with one row carrying ``consolidated_exposure_limit`` and
+        ``total_utilized``.
 
     Implementation: joins group → borrowers → main facilities → ``fact_utilization``,
     filters ``fact_utilization`` to the max ``as_of_date``, and sums ``utilized_amount``
@@ -196,9 +253,15 @@ def get_exposure(group_id: int) -> list[dict]:
 def get_involved_parties(borrower_id: int) -> list[dict]:
     """Related parties and guarantee structure (chapter 5 fact).
 
+    Args:
+        borrower_id: The borrower's primary key.
+
+    Returns:
+        ``list[dict]`` of party rows (role, ownership percentage, country, internal
+        flag), ordered by role then name.
+
     Implementation: ``dim_involved_party JOIN dim_main_facility`` on
-    ``main_facility_id`` for one borrower, returning each party's role, ownership
-    percentage, country and internal flag, ordered by role then name.
+    ``main_facility_id`` for one borrower.
     """
     return _run_readonly(
         "SELECT p.involved_party_id, p.main_facility_id, p.party_name, p.role, "
